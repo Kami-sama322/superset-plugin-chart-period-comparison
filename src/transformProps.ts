@@ -203,21 +203,13 @@ export default function transformProps(
   const ownStateBag = ownState as { periods?: unknown } | undefined;
   const extraFormData = (rawFormData as { extra_form_data?: unknown } | undefined)
     ?.extra_form_data;
-  const ownTimeColumn = getColumnLabel(
-    ensureIsArray(fd.x_axis ?? raw.x_axis)[0],
-  );
   const { periods: resolvedPeriods, source: periodsSource } =
-    resolvePeriodsSource(
-      ownStateBag,
-      fd.periods ?? raw.periods,
-      extraFormData,
-      ownTimeColumn,
-    );
+    resolvePeriodsSource(ownStateBag, fd.periods ?? raw.periods, extraFormData);
   const periods = normalizePeriods(resolvedPeriods);
 
   // the window actually applied by dashboard date filters (plaque + legend
   // suffix so series names never pretend to show unfiltered data)
-  const appliedRange = extractAppliedDateRange(extraFormData, ownTimeColumn);
+  const appliedRange = extractAppliedDateRange(extraFormData);
   const appliedDateRangeLabel = appliedRange
     ? formatPeriodLabel(appliedRange)
     : undefined;

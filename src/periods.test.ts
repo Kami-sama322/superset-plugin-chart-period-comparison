@@ -279,23 +279,24 @@ test("resolvePeriodsSource: any date filter beats ownState beats config", () => 
       time_range: "2026-01-01 : 2026-02-01",
     }),
   ).toEqual({ periods: form, source: "date_filter" });
-  // a simple clause on the chart's own time column (calendar filter)
+  // a simple clause whose value parses as a date (calendar filter on any
+  // column)
   expect(
-    resolvePeriodsSource(
-      { periods: form },
-      form,
-      { filters: [{ col: "ds", op: ">=", val: "2026-01-01" }] },
-      "ds",
-    ),
+    resolvePeriodsSource({ periods: form }, form, {
+      filters: [{ col: "ds", op: ">=", val: "2026-01-01" }],
+    }),
   ).toEqual({ periods: form, source: "date_filter" });
-  // the same clause on a DIFFERENT column is not a date filter for this chart
+  // the same clause on a DIFFERENT column is still a date filter signal
   expect(
-    resolvePeriodsSource(
-      { periods: form },
-      form,
-      { filters: [{ col: "other_col", op: ">=", val: "2026-01-01" }] },
-      "ds",
-    ),
+    resolvePeriodsSource({ periods: form }, form, {
+      filters: [{ col: "other_col", op: ">=", val: "2026-01-01" }],
+    }),
+  ).toEqual({ periods: form, source: "date_filter" });
+  // a non-date value is not a date filter signal
+  expect(
+    resolvePeriodsSource({ periods: form }, form, {
+      filters: [{ col: "region", op: "==", val: "EU" }],
+    }),
   ).toEqual({ periods: form, source: "own" });
   // the chart's own span tag is NOT a signal (no self-deferral)
   expect(
@@ -328,18 +329,15 @@ test("extractFilterPeriods reads custom_form_data entries", () => {
   ]);
 });
 
-test("extractAppliedDateRange reads the window applied to the chart's column", () => {
-  // calendar-style >=/<= pair
+test("extractAppliedDateRange reads the window applied by any date filter", () => {
+  // calendar-style >=/<= pair (on any column)
   expect(
-    extractAppliedDateRange(
-      {
-        filters: [
-          { col: "ds", op: ">=", val: "2026-01-06" },
-          { col: "ds", op: "<=", val: "2026-01-07" },
-        ],
-      },
-      "ds",
-    ),
+    extractAppliedDateRange({
+      filters: [
+        { col: "ds", op: ">=", val: "2026-01-06" },
+        { col: "ds", op: "<=", val: "2026-01-07" },
+      ],
+    }),
   ).toEqual({ startMs: Date.UTC(2026, 0, 6), endMs: Date.UTC(2026, 0, 7) });
   // built-in time range override
   expect(
@@ -349,27 +347,20 @@ test("extractAppliedDateRange reads the window applied to the chart's column", (
   ).toEqual({ startMs: Date.UTC(2026, 1, 1), endMs: Date.UTC(2026, 1, 10) });
   // TEMPORAL_RANGE clause
   expect(
-    extractAppliedDateRange(
-      {
-        filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "2026-03-01 : 2026-03-05" }],
-      },
-      "ds",
-    ),
+    extractAppliedDateRange({
+      filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "2026-03-01 : 2026-03-05" }],
+    }),
   ).toEqual({ startMs: Date.UTC(2026, 2, 1), endMs: Date.UTC(2026, 2, 5) });
-  // other columns and unparseable values are ignored
+  // non-date values and unparseable ranges are ignored
   expect(
-    extractAppliedDateRange(
-      { filters: [{ col: "region", op: "==", val: "EU" }] },
-      "ds",
-    ),
+    extractAppliedDateRange({ filters: [{ col: "region", op: "==", val: "EU" }] }),
   ).toBeNull();
   expect(extractAppliedDateRange({ time_range: "Last week" })).toBeNull();
   // an upper bound alone is not a range
   expect(
-    extractAppliedDateRange(
-      { filters: [{ col: "ds", op: "<=", val: "2026-01-07" }] },
-      "ds",
-    ),
+    extractAppliedDateRange({
+      filters: [{ col: "ds", op: "<=", val: "2026-01-07" }],
+    }),
   ).toBeNull();
 });
 
@@ -378,27 +369,19 @@ test("isDateFilterPresent detects every date-filter shape", () => {
   expect(isDateFilterPresent({})).toBe(false);
   expect(isDateFilterPresent({ custom_form_data: [{ col: "ds" }] })).toBe(true);
   expect(
-    isDateFilterPresent({ filters: [{ col: "ds", op: "==", val: 1 }] }),
+    isDateFilterPresent({ filters: [{ col: "region", op: "==", val: "EU" }] }),
   ).toBe(false);
   expect(
     isDateFilterPresent({
       filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
     }),
   ).toBe(true);
-  // a simple clause on the chart's own time column (calendar filter)
+  // any column — the value parsing as a date is what matters
   expect(
-    isDateFilterPresent(
-      { filters: [{ col: "ds", op: ">=", val: "2026-01-01" }] },
-      "ds",
-    ),
+    isDateFilterPresent({
+      filters: [{ col: "other", op: ">=", val: "2026-01-01" }],
+    }),
   ).toBe(true);
-  // the same clause on another column is not a date filter for this chart
-  expect(
-    isDateFilterPresent(
-      { filters: [{ col: "other", op: ">=", val: "2026-01-01" }] },
-      "ds",
-    ),
-  ).toBe(false);
   expect(
     isDateFilterPresent({
       adhoc_filters: [{ sqlExpression: `${PERIOD_RANGES_TAG} (ds >= 'a')` }],

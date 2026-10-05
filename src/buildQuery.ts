@@ -79,7 +79,6 @@ export default function buildQuery(
     options.ownState,
     formData.periods,
     extraFormData,
-    timeColumn,
   );
   const { periods: validated, errors } = validatePeriods(rawPeriodList, {
     maxCount: MAX_PERIODS,
