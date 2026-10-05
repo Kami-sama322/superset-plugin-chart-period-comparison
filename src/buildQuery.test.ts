@@ -83,6 +83,20 @@ test("ownState periods override the control-panel value", () => {
   );
 });
 
+test("a date filter with no structured periods yields an always-empty query", () => {
+  const context = buildQuery({
+    ...formData(),
+    extra_form_data: {
+      custom_form_data: [{ col: "events_dt" }], // presence marker only
+    },
+  } as never);
+  expect(context.queries).toHaveLength(1);
+  expect(context.queries[0].adhoc_filters).toEqual([
+    { clause: "WHERE", expressionType: "SQL", sqlExpression: "1 = 0" },
+  ]);
+  expect(context.queries[0].filters).toEqual([]);
+});
+
 test("filter periods from extra_form_data.custom_form_data drive the queries", () => {
   const context = buildQuery({
     ...formData(),
@@ -98,11 +112,16 @@ test("filter periods from extra_form_data.custom_form_data drive the queries", (
   );
 });
 
-test("tagged period_ranges adhoc clauses are stripped from the base filters", () => {
-  const taggedClause = {
+test("tagged date-filter clauses (foreign and own) are stripped from the base", () => {
+  const foreignTagged = {
     clause: "WHERE",
     expressionType: "SQL",
     sqlExpression: "/* period_ranges:v1 */ (events_dt >= '2026-06-01')",
+  };
+  const ownSpan = {
+    clause: "WHERE",
+    expressionType: "SQL",
+    sqlExpression: "/* period_comparison:own:v1 */ (events_dt >= '2026-01-01')",
   };
   const regularAdhoc = {
     clause: "WHERE",
@@ -112,27 +131,19 @@ test("tagged period_ranges adhoc clauses are stripped from the base filters", ()
   const context = buildQuery({
     ...formData(),
     extra_form_data: {
-      adhoc_filters: [taggedClause, regularAdhoc],
+      adhoc_filters: [foreignTagged, ownSpan, regularAdhoc],
       custom_form_data: [
         { col: "events_dt", start: "2026-06-01T00:00:00.000Z", end: "2026-06-05T23:59:59.999Z" },
       ],
     },
   } as never);
   context.queries.forEach(query => {
-    // the tagged clause targeting the filter's column must not AND-narrow
-    // this chart's own per-period ranges
+    // neither the foreign filter clause nor the chart's own span may
+    // AND-narrow the per-period ranges built from the structured channel
+    const adhoc = query.adhoc_filters as { sqlExpression?: string }[] | undefined;
+    expect(adhoc?.some(f => f.sqlExpression?.startsWith("/* period"))).toBe(false);
+    expect(adhoc?.some(f => f.sqlExpression === "region IN ('EU')")).toBe(true);
     expect(query.filters?.some(f => f.col === "events_dt")).toBe(false);
-    // untagged adhoc filters survive in the query's adhoc_filters
-    expect(
-      (query.adhoc_filters as { sqlExpression: string }[])?.some(
-        f => f.sqlExpression === "region IN ('EU')",
-      ),
-    ).toBe(true);
-    expect(
-      (query.adhoc_filters as { sqlExpression: string }[])?.some(f =>
-        f.sqlExpression?.startsWith("/* period_ranges"),
-      ),
-    ).toBe(false);
   });
 });
 

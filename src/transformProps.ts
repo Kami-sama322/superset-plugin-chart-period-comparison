@@ -25,7 +25,6 @@ import {
   getNumberFormatter,
 } from "@superset-ui/core";
 import {
-  extractFilterPeriods,
   formatHourAxisLabel,
   formatPeriodLabel,
   parseGrain,
@@ -198,15 +197,15 @@ export default function transformProps(
     null,
   );
 
-  // On the dashboard the on-chart pickers write ownState; the period_ranges
-  // native filter outranks both (its structured ranges arrive via
-  // extra_form_data.custom_form_data). Same source as buildQuery.
+  // On the dashboard ANY date/time filter reaching the chart outranks the
+  // pickers (period_ranges structured channel, TEMPORAL_RANGE clauses,
+  // time_range override); then the on-chart pickers (ownState), then the
+  // control-panel value. Same source as buildQuery.
   const ownStateBag = ownState as { periods?: unknown } | undefined;
-  const filterPeriods = extractFilterPeriods(
-    (rawFormData as { extra_form_data?: unknown } | undefined)?.extra_form_data,
-  );
+  const extraFormData = (rawFormData as { extra_form_data?: unknown } | undefined)
+    ?.extra_form_data;
   const { periods: resolvedPeriods, source: periodsSource } =
-    resolvePeriodsSource(ownStateBag, fd.periods ?? raw.periods, filterPeriods);
+    resolvePeriodsSource(ownStateBag, fd.periods ?? raw.periods, extraFormData);
   const periods = normalizePeriods(resolvedPeriods);
 
   let statusKind: StatusKind = null;

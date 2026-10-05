@@ -306,6 +306,13 @@ export type PeriodsSource = "filter" | "own" | "config";
 export const PERIOD_RANGES_TAG = "/* period_ranges:v1 */";
 
 /**
+ * Tag prefix of THIS chart's own span clause (emitted to cross-filter
+ * other charts). Excluded from the date-filter presence detection so the
+ * chart never defers to itself.
+ */
+export const OWN_SPAN_TAG = "/* period_comparison:own:v1 */";
+
+/**
  * Structured ranges emitted by the `period_ranges` native filter via
  * `extra_form_data.custom_form_data` (an APPEND key that reaches every
  * in-scope chart's formData verbatim).
@@ -327,29 +334,84 @@ export function extractFilterPeriods(extraFormData: unknown): PeriodRange[] {
     .filter(period => period.start !== "" || period.end !== "");
 }
 
-/** Remove the filter's tagged OR clauses from this chart's base filters */
+/**
+ * True when ANY date/time-range filter is present on the dashboard and
+ * reaches this chart through the aggregated extra_form_data:
+ * - the period_ranges filter (structured entries or its tagged clause),
+ * - any native/cross filter emitting TEMPORAL_RANGE clauses (calendar,
+ *   built-in time range, other charts),
+ * - a time_range override (built-in Time range filter).
+ *
+ * This chart's own span (tagged) is intentionally NOT a signal — otherwise
+ * the chart would defer to itself.
+ */
+export function isDateFilterPresent(extraFormData: unknown): boolean {
+  const bag = (extraFormData || {}) as {
+    custom_form_data?: unknown;
+    filters?: unknown;
+    adhoc_filters?: unknown;
+    time_range?: unknown;
+    extras?: { time_range?: unknown };
+  };
+  if (Array.isArray(bag.custom_form_data) && bag.custom_form_data.length > 0) {
+    return true;
+  }
+  if (Array.isArray(bag.filters)) {
+    const hasTemporal = bag.filters.some(
+      item => (item as { op?: unknown })?.op === "TEMPORAL_RANGE",
+    );
+    if (hasTemporal) {
+      return true;
+    }
+  }
+  if (Array.isArray(bag.adhoc_filters)) {
+    const hasForeignTagged = bag.adhoc_filters.some(item => {
+      const sql = (item as { sqlExpression?: unknown })?.sqlExpression;
+      return (
+        typeof sql === "string" && sql.startsWith(PERIOD_RANGES_TAG)
+      );
+    });
+    if (hasForeignTagged) {
+      return true;
+    }
+  }
+  if (bag.time_range != null || bag.extras?.time_range != null) {
+    return true;
+  }
+  return false;
+}
+
+/** Remove ALL tagged date-filter clauses (foreign + this chart's own span) */
 export function stripTaggedPeriodRangeFilters(adhocFilters: unknown): unknown[] {
   if (!Array.isArray(adhocFilters)) {
     return [];
   }
   return adhocFilters.filter(item => {
     const sql = (item as { sqlExpression?: unknown })?.sqlExpression;
-    return !(typeof sql === "string" && sql.startsWith(PERIOD_RANGES_TAG));
+    return !(
+      typeof sql === "string" &&
+      (sql.startsWith(PERIOD_RANGES_TAG) || sql.startsWith(OWN_SPAN_TAG))
+    );
   });
 }
 
 /**
  * Authoritative source of the displayed/queried periods, highest priority
- * first: the period_ranges native filter (structured channel), the
- * dashboard ownState (the on-chart pickers), the control-panel value.
+ * first: ANY date/time filter reaching this chart (structured periods from
+ * the period_ranges filter, or just its presence — in which case the chart
+ * defers even before the filter has values), the dashboard ownState (the
+ * on-chart pickers), the control-panel value.
  */
 export function resolvePeriodsSource(
   ownState: { periods?: unknown } | null | undefined,
   formPeriods: unknown,
-  filterPeriods: PeriodRange[] = [],
+  extraFormData: unknown = null,
 ): { periods: PeriodRange[]; source: PeriodsSource } {
-  if (filterPeriods.length > 0) {
-    return { periods: filterPeriods, source: "filter" };
+  if (isDateFilterPresent(extraFormData)) {
+    return {
+      periods: extractFilterPeriods(extraFormData),
+      source: "filter",
+    };
   }
   if (ownState && Array.isArray(ownState.periods)) {
     return { periods: ownState.periods as PeriodRange[], source: "own" };

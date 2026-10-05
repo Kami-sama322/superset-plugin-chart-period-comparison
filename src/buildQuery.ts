@@ -34,7 +34,6 @@ import {
 } from "./periods";
 import { buildPeriodQueries } from "./queryPlan";
 import type { PeriodComparisonQueryFormData } from "./types";
-
 type BuildQueryOptions = {
   ownState?: { periods?: unknown } | null;
 };
@@ -70,20 +69,40 @@ export default function buildQuery(
     throw new Error("Select a time column");
   }
 
-  // Highest priority first: period_ranges native filter (structured
-  // channel), dashboard ownState (on-chart pickers), control-panel value
-  const filterPeriods = extractFilterPeriods(
-    (formData as { extra_form_data?: unknown }).extra_form_data,
-  );
-  const { periods: rawPeriodList } = resolvePeriodsSource(
+  // Highest priority first: ANY date/time filter reaching this chart
+  // (the period_ranges structured channel, TEMPORAL_RANGE clauses, a
+  // time_range override), then dashboard ownState (on-chart pickers),
+  // then the control-panel value
+  const extraFormData = (formData as { extra_form_data?: unknown })
+    .extra_form_data;
+  const { periods: rawPeriodList, source } = resolvePeriodsSource(
     options.ownState,
     formData.periods,
-    filterPeriods,
+    extraFormData,
   );
   const { periods: validated, errors } = validatePeriods(rawPeriodList, {
     maxCount: MAX_PERIODS,
   });
   if (validated.length === 0) {
+    // a date filter drives the chart but has no usable periods yet —
+    // return an always-empty query instead of erroring (the UI explains)
+    if (source === "filter") {
+      return buildQueryContext(formData, {
+        buildQuery: (baseQueryObject: QueryObject) => [
+          {
+            ...baseQueryObject,
+            filters: [],
+            adhoc_filters: [
+              {
+                clause: "WHERE",
+                expressionType: "SQL",
+                sqlExpression: "1 = 0",
+              },
+            ],
+          },
+        ],
+      });
+    }
     const reason = errors.length
       ? `: ${ISSUE_TEXT[errors[0].type] ?? errors[0].type}`
       : "";

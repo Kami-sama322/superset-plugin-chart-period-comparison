@@ -106,6 +106,44 @@ test("periods from the period_ranges filter win and hide the pickers", () => {
   expect(props.periodsLabel).toContain("06.04");
 });
 
+test("the filter's presence alone (marker) defers the chart with a hint", () => {
+  const props = transformProps(
+    chartProps("day", true, {
+      custom_form_data: [{ col: "events_dt" }],
+    }),
+  );
+  expect(props.periodsSource).toBe("filter");
+  expect(props.periods).toHaveLength(0);
+  expect(props.statusKind).toBe("no_periods");
+});
+
+test("an applied TEMPORAL_RANGE filter defers the chart too", () => {
+  const props = transformProps(
+    chartProps("day", true, {
+      filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
+    }),
+  );
+  expect(props.periodsSource).toBe("filter");
+  expect(props.periods).toHaveLength(0);
+  expect(props.statusKind).toBe("no_periods");
+});
+
+test("the chart's own span tag does not trigger self-deferral", () => {
+  const props = transformProps(
+    chartProps("day", true, {
+      adhoc_filters: [
+        {
+          clause: "WHERE",
+          expressionType: "SQL",
+          sqlExpression: "/* period_comparison:own:v1 */ (ds >= '2026-01-05')",
+        },
+      ],
+    }),
+  );
+  expect(props.periodsSource).toBe("config");
+  expect(props.periods).toHaveLength(1);
+});
+
 test("without the filter the pickers stay active (source own/config)", () => {
   const props = transformProps(chartProps("day", true));
   expect(props.periodsSource).toBe("config");

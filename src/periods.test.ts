@@ -25,6 +25,8 @@ import {
   formatHourAxisLabel,
   formatPeriodLabel,
   HOUR_MS,
+  isDateFilterPresent,
+  OWN_SPAN_TAG,
   parseGrain,
   parsePeriodEndMs,
   parsePeriodMs,
@@ -227,9 +229,9 @@ test("validatePeriods truncates above the limit and warns on overlap", () => {
   expect(zeroLength.errors).toEqual([{ type: "end_before_start", index: 0 }]);
 });
 
-test("resolvePeriodsSource: filter beats ownState beats config", () => {
+test("resolvePeriodsSource: any date filter beats ownState beats config", () => {
   const form = [{ start: "2026-01-01", end: "2026-01-02" }];
-  const filter = [{ start: "2026-02-01", end: "2026-02-03" }];
+  const structured = [{ col: "ds", start: "2026-02-01", end: "2026-02-03" }];
   expect(resolvePeriodsSource(undefined, form)).toEqual({
     periods: form,
     source: "config",
@@ -246,15 +248,47 @@ test("resolvePeriodsSource: filter beats ownState beats config", () => {
     periods: form,
     source: "own",
   });
-  expect(resolvePeriodsSource({ periods: form }, undefined, filter)).toEqual({
-    periods: filter,
+  // the period_ranges filter with applied ranges (col is dropped — the
+  // chart applies the ranges to its own time column)
+  expect(
+    resolvePeriodsSource({ periods: form }, undefined, {
+      custom_form_data: structured,
+    }),
+  ).toEqual({
+    periods: [{ start: "2026-02-01", end: "2026-02-03" }],
     source: "filter",
   });
-  // an empty filter set falls through to ownState
-  expect(resolvePeriodsSource({ periods: form }, form, [])).toEqual({
-    periods: form,
-    source: "own",
-  });
+  // the period_ranges filter present but empty — the chart defers with
+  // zero periods
+  expect(
+    resolvePeriodsSource({ periods: form }, form, {
+      custom_form_data: [{ col: "ds" }],
+    }),
+  ).toEqual({ periods: [], source: "filter" });
+  // an applied TEMPORAL_RANGE clause from any other date filter
+  expect(
+    resolvePeriodsSource({ periods: form }, form, {
+      filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
+    }),
+  ).toEqual({ periods: [], source: "filter" });
+  // a time_range override (built-in Time range filter)
+  expect(
+    resolvePeriodsSource({ periods: form }, form, {
+      time_range: "2026-01-01 : 2026-02-01",
+    }),
+  ).toEqual({ periods: [], source: "filter" });
+  // the chart's own span tag is NOT a signal (no self-deferral)
+  expect(
+    resolvePeriodsSource({ periods: form }, form, {
+      adhoc_filters: [
+        {
+          clause: "WHERE",
+          expressionType: "SQL",
+          sqlExpression: `${OWN_SPAN_TAG} (ds >= '2026-01-05')`,
+        },
+      ],
+    }),
+  ).toEqual({ periods: form, source: "own" });
 });
 
 test("extractFilterPeriods reads custom_form_data entries", () => {
@@ -274,11 +308,43 @@ test("extractFilterPeriods reads custom_form_data entries", () => {
   ]);
 });
 
-test("stripTaggedPeriodRangeFilters removes only tagged SQL clauses", () => {
+test("isDateFilterPresent detects every date-filter shape", () => {
+  expect(isDateFilterPresent(undefined)).toBe(false);
+  expect(isDateFilterPresent({})).toBe(false);
+  expect(isDateFilterPresent({ custom_form_data: [{ col: "ds" }] })).toBe(true);
+  expect(
+    isDateFilterPresent({ filters: [{ col: "ds", op: "==", val: 1 }] }),
+  ).toBe(false);
+  expect(
+    isDateFilterPresent({
+      filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
+    }),
+  ).toBe(true);
+  expect(
+    isDateFilterPresent({
+      adhoc_filters: [{ sqlExpression: `${PERIOD_RANGES_TAG} (ds >= 'a')` }],
+    }),
+  ).toBe(true);
+  // the chart's own span tag is not a foreign date filter
+  expect(
+    isDateFilterPresent({
+      adhoc_filters: [{ sqlExpression: `${OWN_SPAN_TAG} (ds >= 'a')` }],
+    }),
+  ).toBe(false);
+  expect(isDateFilterPresent({ time_range: "a : b" })).toBe(true);
+  expect(isDateFilterPresent({ extras: { time_range: "a : b" } })).toBe(true);
+});
+
+test("stripTaggedPeriodRangeFilters removes tagged clauses (foreign and own)", () => {
   const tagged = {
     clause: "WHERE",
     expressionType: "SQL",
     sqlExpression: `${PERIOD_RANGES_TAG} (ds >= 'a')`,
+  };
+  const ownSpan = {
+    clause: "WHERE",
+    expressionType: "SQL",
+    sqlExpression: `${OWN_SPAN_TAG} (ds >= 'a')`,
   };
   const regular = {
     clause: "WHERE",
@@ -293,10 +359,9 @@ test("stripTaggedPeriodRangeFilters removes only tagged SQL clauses", () => {
     sqlExpression: "region IN ('EU')",
   };
   expect(stripTaggedPeriodRangeFilters(undefined)).toEqual([]);
-  expect(stripTaggedPeriodRangeFilters([tagged, regular, otherSql])).toEqual([
-    regular,
-    otherSql,
-  ]);
+  expect(
+    stripTaggedPeriodRangeFilters([tagged, ownSpan, regular, otherSql]),
+  ).toEqual([regular, otherSql]);
 });
 
 test("parseGrain falls back to day on unknown values", () => {
