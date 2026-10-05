@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { t } from "@apache-superset/core/translation";
 import { styled, useTheme } from "@apache-superset/core/theme";
 import { applyThemeColors } from "./chartOptions";
@@ -101,6 +101,21 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
       }),
     [echartOptions, theme],
   );
+
+  // When the period_ranges filter takes over, the chart's OWN previously
+  // emitted mask (pickers' span + ownState) is still stored in the
+  // dashboard state and AND-narrows both this chart's queries and the
+  // other charts. Clear it exactly once on the transition.
+  const staleOwnMask = periodsSource === "filter" && filterState?.value != null;
+  useEffect(() => {
+    if (staleOwnMask) {
+      setDataMask({
+        ownState: {},
+        extraFormData: { filters: [] },
+        filterState: { value: null },
+      });
+    }
+  }, [staleOwnMask, setDataMask]);
 
   const hasToolbar = Boolean(timeColumn);
 
