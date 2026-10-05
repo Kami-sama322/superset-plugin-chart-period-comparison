@@ -120,6 +120,8 @@ export type PeriodComparisonTransformedProps = {
   periodsSource: "filter" | "own" | "config";
   /** Formatted labels of the rendered periods ("05.01–09.01.2026, …") */
   periodsLabel?: string;
+  /** The window actually applied by dashboard date filters ("06.01–07.01.2026") */
+  appliedDateRangeLabel?: string;
   timeColumn: string;
   grain: ComparisonGrain;
   setDataMask: SetDataMaskHook;

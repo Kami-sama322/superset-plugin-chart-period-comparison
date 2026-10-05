@@ -20,6 +20,7 @@ import {
   bucketCount,
   bucketIndexForTs,
   buildBucketStarts,
+  extractAppliedDateRange,
   extractFilterPeriods,
   formatBucketDate,
   formatHourAxisLabel,
@@ -325,6 +326,51 @@ test("extractFilterPeriods reads custom_form_data entries", () => {
   ).toEqual([
     { start: "2026-01-05T00:00:00.000Z", end: "2026-01-09T23:59:59.999Z" },
   ]);
+});
+
+test("extractAppliedDateRange reads the window applied to the chart's column", () => {
+  // calendar-style >=/<= pair
+  expect(
+    extractAppliedDateRange(
+      {
+        filters: [
+          { col: "ds", op: ">=", val: "2026-01-06" },
+          { col: "ds", op: "<=", val: "2026-01-07" },
+        ],
+      },
+      "ds",
+    ),
+  ).toEqual({ startMs: Date.UTC(2026, 0, 6), endMs: Date.UTC(2026, 0, 7) });
+  // built-in time range override
+  expect(
+    extractAppliedDateRange({
+      time_range: "2026-02-01 00:00:00 : 2026-02-10 00:00:00",
+    }),
+  ).toEqual({ startMs: Date.UTC(2026, 1, 1), endMs: Date.UTC(2026, 1, 10) });
+  // TEMPORAL_RANGE clause
+  expect(
+    extractAppliedDateRange(
+      {
+        filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "2026-03-01 : 2026-03-05" }],
+      },
+      "ds",
+    ),
+  ).toEqual({ startMs: Date.UTC(2026, 2, 1), endMs: Date.UTC(2026, 2, 5) });
+  // other columns and unparseable values are ignored
+  expect(
+    extractAppliedDateRange(
+      { filters: [{ col: "region", op: "==", val: "EU" }] },
+      "ds",
+    ),
+  ).toBeNull();
+  expect(extractAppliedDateRange({ time_range: "Last week" })).toBeNull();
+  // an upper bound alone is not a range
+  expect(
+    extractAppliedDateRange(
+      { filters: [{ col: "ds", op: "<=", val: "2026-01-07" }] },
+      "ds",
+    ),
+  ).toBeNull();
 });
 
 test("isDateFilterPresent detects every date-filter shape", () => {

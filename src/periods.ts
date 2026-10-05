@@ -398,6 +398,87 @@ export function isDateFilterPresent(
   return false;
 }
 
+/**
+ * The date range actually applied by dashboard date filters, as seen by
+ * this chart (clauses on its own time column, or a time_range override
+ * with absolute bounds). Null when nothing parseable is applied.
+ */
+export function extractAppliedDateRange(
+  extraFormData: unknown,
+  ownTimeColumn?: string,
+): { startMs: number; endMs: number } | null {
+  const bag = (extraFormData || {}) as {
+    filters?: unknown;
+    time_range?: unknown;
+    extras?: { time_range?: unknown };
+  };
+  const lower: number[] = [];
+  const upper: number[] = [];
+  const keepLower = (ms: number) => lower.push(ms);
+  const keepUpper = (ms: number) => upper.push(ms);
+  const parseBound = (value: unknown): number | null => {
+    if (typeof value !== "string") {
+      return null;
+    }
+    return parsePeriodMs(value);
+  };
+  if (Array.isArray(bag.filters)) {
+    bag.filters.forEach(item => {
+      const clause = item as { op?: unknown; col?: unknown; val?: unknown };
+      if (!ownTimeColumn || clause?.col !== ownTimeColumn) {
+        if (clause?.op !== "TEMPORAL_RANGE") {
+          return;
+        }
+      }
+      const val = clause?.val;
+      if (typeof val !== "string") {
+        return;
+      }
+      if (clause.op === "TEMPORAL_RANGE") {
+        const [s, e] = val.split(" : ");
+        const start = parseBound(s);
+        const end = parseBound(e);
+        if (start !== null && end !== null) {
+          keepLower(start);
+          keepUpper(end);
+        }
+        return;
+      }
+      const bound = parseBound(val);
+      if (bound === null) {
+        return;
+      }
+      if (clause.op === "==" || clause.op === ">=" || clause.op === ">") {
+        keepLower(bound);
+        if (clause.op === "==") {
+          keepUpper(bound);
+        }
+      } else if (clause.op === "<=" || clause.op === "<") {
+        keepUpper(bound);
+      }
+    });
+  }
+  const timeRange =
+    typeof bag.time_range === "string"
+      ? bag.time_range
+      : typeof bag.extras?.time_range === "string"
+        ? bag.extras.time_range
+        : null;
+  if (timeRange) {
+    const [s, e] = timeRange.split(" : ");
+    const start = parseBound(s);
+    const end = parseBound(e);
+    if (start !== null && end !== null) {
+      keepLower(start);
+      keepUpper(end);
+    }
+  }
+  if (lower.length === 0 || upper.length === 0) {
+    return null;
+  }
+  return { startMs: Math.min(...lower), endMs: Math.max(...upper) };
+}
+
 /** Remove ALL tagged date-filter clauses (foreign + this chart's own span) */
 export function stripTaggedPeriodRangeFilters(adhocFilters: unknown): unknown[] {
   if (!Array.isArray(adhocFilters)) {

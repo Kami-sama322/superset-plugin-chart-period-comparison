@@ -25,6 +25,7 @@ import {
   getNumberFormatter,
 } from "@superset-ui/core";
 import {
+  extractAppliedDateRange,
   formatHourAxisLabel,
   formatPeriodLabel,
   parseGrain,
@@ -214,6 +215,17 @@ export default function transformProps(
     );
   const periods = normalizePeriods(resolvedPeriods);
 
+  // the window actually applied by dashboard date filters (plaque + legend
+  // suffix so series names never pretend to show unfiltered data)
+  const appliedRange = extractAppliedDateRange(extraFormData, ownTimeColumn);
+  const appliedDateRangeLabel = appliedRange
+    ? formatPeriodLabel(appliedRange)
+    : undefined;
+  const dateFilterSuffix =
+    periodsSource === "date_filter" && appliedDateRangeLabel
+      ? ` (${appliedDateRangeLabel})`
+      : "";
+
   let statusKind: StatusKind = null;
   let echartOptions: Record<string, unknown> = {};
   let periodsLabel: string | undefined;
@@ -260,7 +272,9 @@ export default function transformProps(
           timeColumnLabel: timeColumn,
           axisLength,
           scale,
-          name: style?.label || formatPeriodLabel(period),
+          name:
+            style?.label ||
+            `${formatPeriodLabel(period)}${dateFilterSuffix}`,
           color: style?.color || undefined,
           symbol: seriesSymbolFor(index, seriesCount, style),
           showSymbol: style?.markerEnabled !== false,
@@ -301,6 +315,7 @@ export default function transformProps(
     periods,
     periodsSource,
     periodsLabel,
+    appliedDateRangeLabel,
     timeColumn: getColumnLabel(xAxis) || "",
     grain,
     setDataMask: hooks?.setDataMask ?? noOp,

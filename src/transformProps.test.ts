@@ -178,6 +178,49 @@ test("data in at least one period is enough to draw the chart", () => {
   expect(series[1].data).toEqual([7, 8, null, null, null]);
 });
 
+test("a calendar filter labels the legend and the plaque with its window", () => {
+  const base = chartProps("day", true, {
+    filters: [
+      { col: "ds", op: ">=", val: "2026-01-06" },
+      { col: "ds", op: "<=", val: "2026-01-07" },
+    ],
+  });
+  const props = transformProps({
+    ...base,
+    formData: {
+      ...base.formData,
+      periods: [
+        { start: "2026-01-05", end: "2026-01-09" },
+        { start: "2026-02-02", end: "2026-02-06" },
+      ],
+    },
+    rawFormData: {
+      ...base.rawFormData,
+      periods: [
+        { start: "2026-01-05", end: "2026-01-09" },
+        { start: "2026-02-02", end: "2026-02-06" },
+      ],
+      extra_form_data: {
+        filters: [
+          { col: "ds", op: ">=", val: "2026-01-06" },
+          { col: "ds", op: "<=", val: "2026-01-07" },
+        ],
+      },
+    },
+    queriesData: [
+      {
+        data: [{ __timestamp: Date.UTC(2026, 0, 6), m: 1 }],
+      },
+      { data: [] },
+    ],
+  } as never);
+  expect(props.periodsSource).toBe("date_filter");
+  expect(props.appliedDateRangeLabel).toBe("06.01–07.01.2026");
+  const series = props.echartOptions.series as { name: string }[];
+  expect(series[0].name).toBe("05.01–09.01.2026 (06.01–07.01.2026)");
+  expect(series[1].name).toBe("02.02–06.02.2026 (06.01–07.01.2026)");
+});
+
 test("the chart's own span tag does not trigger self-deferral", () => {
   const props = transformProps(
     chartProps("day", true, {

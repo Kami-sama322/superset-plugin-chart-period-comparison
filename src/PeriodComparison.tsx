@@ -86,6 +86,7 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
     periods,
     periodsSource,
     periodsLabel,
+    appliedDateRangeLabel,
     timeColumn,
     setDataMask,
     filterState,
@@ -136,7 +137,10 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
           </FilterPlaque>
         ) : periodsSource === "date_filter" ? (
           <FilterPlaque height={`${TOOLBAR_HEIGHT}px`}>
-            <span>{t("Filtered by a dashboard date filter")}</span>
+            <span>
+              {t("Filtered by a dashboard date filter")}:{" "}
+              {appliedDateRangeLabel || "—"}
+            </span>
           </FilterPlaque>
         ) : (
           <ToolbarRow height={`${TOOLBAR_HEIGHT}px`}>
