@@ -106,26 +106,76 @@ test("periods from the period_ranges filter win and hide the pickers", () => {
   expect(props.periodsLabel).toContain("06.04");
 });
 
-test("the filter's presence alone (marker) defers the chart with a hint", () => {
+test("the period_ranges filter's presence marker switches the source to date_filter", () => {
   const props = transformProps(
     chartProps("day", true, {
       custom_form_data: [{ col: "events_dt" }],
     }),
   );
-  expect(props.periodsSource).toBe("filter");
-  expect(props.periods).toHaveLength(0);
-  expect(props.statusKind).toBe("no_periods");
+  // no structured ranges — the chart keeps its configured periods but the
+  // pickers are hidden (a dashboard date filter governs the window)
+  expect(props.periodsSource).toBe("date_filter");
+  expect(props.periods).toHaveLength(1);
+  expect(props.statusKind).toBeNull();
 });
 
-test("an applied TEMPORAL_RANGE filter defers the chart too", () => {
+test("an applied TEMPORAL_RANGE filter switches the source to date_filter", () => {
   const props = transformProps(
     chartProps("day", true, {
       filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
     }),
   );
-  expect(props.periodsSource).toBe("filter");
-  expect(props.periods).toHaveLength(0);
-  expect(props.statusKind).toBe("no_periods");
+  expect(props.periodsSource).toBe("date_filter");
+  expect(props.periods).toHaveLength(1);
+  expect(props.statusKind).toBeNull();
+});
+
+test("a date filter with no data in ANY period shows the empty status", () => {
+  const props = transformProps({
+    ...chartProps("day", true, {
+      filters: [{ col: "ds", op: ">=", val: "2030-01-01" }],
+    }),
+    queriesData: [{ data: [] }],
+  });
+  expect(props.periodsSource).toBe("date_filter");
+  expect(props.statusKind).toBe("no_data");
+});
+
+test("data in at least one period is enough to draw the chart", () => {
+  const twoPeriods = [
+    { start: "2026-01-05", end: "2026-01-09" },
+    { start: "2026-02-02", end: "2026-02-06" },
+  ];
+  const base = chartProps("day", true, {
+    filters: [{ col: "ds", op: ">=", val: "2030-01-01" }],
+  });
+  const props = transformProps({
+    ...base,
+    formData: { ...base.formData, periods: twoPeriods },
+    rawFormData: {
+      ...base.rawFormData,
+      periods: twoPeriods,
+      extra_form_data: {
+        filters: [{ col: "ds", op: ">=", val: "2030-01-01" }],
+      },
+    },
+    queriesData: [
+      { data: [] }, // first period — no data
+      {
+        data: [
+          { __timestamp: Date.UTC(2026, 1, 2), m: 7 },
+          { __timestamp: Date.UTC(2026, 1, 3), m: 8 },
+        ],
+      }, // second period — has data
+    ],
+  } as never);
+  expect(props.periodsSource).toBe("date_filter");
+  expect(props.statusKind).toBeNull();
+  expect(props.echartOptions.series).toHaveLength(2);
+  // the empty first period leaves a gap, the second one is drawn
+  const series = props.echartOptions.series as { data: (number | null)[] }[];
+  expect(series[0].data).toEqual([null, null, null, null, null]);
+  expect(series[1].data).toEqual([7, 8, null, null, null]);
 });
 
 test("the chart's own span tag does not trigger self-deferral", () => {

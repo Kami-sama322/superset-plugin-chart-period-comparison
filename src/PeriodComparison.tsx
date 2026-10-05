@@ -103,11 +103,13 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
     [echartOptions, theme],
   );
 
-  // When the period_ranges filter takes over, the chart's OWN previously
-  // emitted mask (pickers' span + ownState) is still stored in the
-  // dashboard state and AND-narrows both this chart's queries and the
-  // other charts. Clear it exactly once on the transition.
-  const staleOwnMask = periodsSource === "filter" && filterState?.value != null;
+  // When ANY date filter takes over, the chart's OWN previously emitted
+  // mask (pickers' span + ownState) is still stored in the dashboard state
+  // and AND-narrows both this chart's queries and the other charts. Clear
+  // it exactly once on the transition.
+  const staleOwnMask =
+    (periodsSource === "filter" || periodsSource === "date_filter") &&
+    filterState?.value != null;
   useEffect(() => {
     if (staleOwnMask) {
       setDataMask({
@@ -131,6 +133,10 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
             <span>
               {t("Periods from filter")}: {periodsLabel || "—"}
             </span>
+          </FilterPlaque>
+        ) : periodsSource === "date_filter" ? (
+          <FilterPlaque height={`${TOOLBAR_HEIGHT}px`}>
+            <span>{t("Filtered by a dashboard date filter")}</span>
           </FilterPlaque>
         ) : (
           <ToolbarRow height={`${TOOLBAR_HEIGHT}px`}>

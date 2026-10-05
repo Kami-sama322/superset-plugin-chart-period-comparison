@@ -91,15 +91,21 @@ Verify: **Charts → + Chart → Period Comparison**.
 
 Install the [`superset-plugin-filter-period-ranges`](https://github.com/Kami-sama322/superset-plugin-filter-period-ranges)
 native filter and add it to the dashboard (in the chart's scope): the chart
-defers to it — the on-chart pickers are replaced by a plaque, the filter's
-ranges are re-applied to the chart's own time column in its queries, and
-while the filter has no ranges selected the chart shows a hint instead of
-data. The chart detects **any** date/time filter reaching it through the
-aggregated `extra_form_data`: the period_ranges structured channel, any
-`TEMPORAL_RANGE` clause (calendar filter, built-in Time range filter,
-other charts), or a `time_range` override. Priority: date filter →
-on-chart pickers (ownState) → control-panel config. Without a date filter
-in scope the pickers work as before.
+defers to it — the on-chart pickers are replaced by a plaque and the
+filter's ranges are re-applied to the chart's own time column in its
+queries. While the filter has no ranges selected the chart shows a hint,
+and "Clear all" never brings the pickers back while the filter exists.
+
+The chart also reacts to **any other date filter** reaching it through the
+aggregated `extra_form_data` (the calendar filter, the built-in Time range
+filter, `TEMPORAL_RANGE` clauses from other charts, or a simple clause on
+the chart's own time column): the pickers hide, the chart keeps its
+configured periods and they are narrowed by the filter, and the chart
+draws as long as at least one period has data.
+
+Priority: period_ranges structured ranges → any applied date filter
+(own configured periods) → on-chart pickers (ownState) → control-panel
+config. Without a date filter in scope the pickers work as before.
 
 ### Behavior notes
 

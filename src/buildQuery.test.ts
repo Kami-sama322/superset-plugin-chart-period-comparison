@@ -83,9 +83,10 @@ test("ownState periods override the control-panel value", () => {
   );
 });
 
-test("a date filter with no structured periods yields an always-empty query", () => {
+test("a date filter with no structured periods and no config periods yields an always-empty query", () => {
   const context = buildQuery({
     ...formData(),
+    periods: [],
     extra_form_data: {
       custom_form_data: [{ col: "events_dt" }], // presence marker only
     },
@@ -95,6 +96,22 @@ test("a date filter with no structured periods yields an always-empty query", ()
     { clause: "WHERE", expressionType: "SQL", sqlExpression: "1 = 0" },
   ]);
   expect(context.queries[0].filters).toEqual([]);
+});
+
+test("a calendar-style date filter keeps the configured periods and narrows them", () => {
+  const context = buildQuery({
+    ...formData(),
+    extra_form_data: {
+      filters: [{ col: "ds", op: ">=", val: "2026-01-06" }],
+    },
+  } as never);
+  // config periods still drive the chart (two queries)
+  expect(context.queries).toHaveLength(2);
+  context.queries.forEach(query => {
+    expect(query.filters?.at(-1)?.val).toBeDefined();
+    // the calendar's simple clause survives in the base filters
+    expect(query.filters?.some(f => f.col === "ds" && f.op === ">=")).toBe(true);
+  });
 });
 
 test("filter periods from extra_form_data.custom_form_data drive the queries", () => {

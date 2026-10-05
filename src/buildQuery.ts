@@ -69,24 +69,25 @@ export default function buildQuery(
     throw new Error("Select a time column");
   }
 
-  // Highest priority first: ANY date/time filter reaching this chart
-  // (the period_ranges structured channel, TEMPORAL_RANGE clauses, a
-  // time_range override), then dashboard ownState (on-chart pickers),
-  // then the control-panel value
+  // Highest priority first: structured periods from the period_ranges
+  // filter; then ANY applied date filter (the chart keeps its configured
+  // periods, narrowed by the filter); then dashboard ownState (on-chart
+  // pickers); then the control-panel value
   const extraFormData = (formData as { extra_form_data?: unknown })
     .extra_form_data;
   const { periods: rawPeriodList, source } = resolvePeriodsSource(
     options.ownState,
     formData.periods,
     extraFormData,
+    timeColumn,
   );
   const { periods: validated, errors } = validatePeriods(rawPeriodList, {
     maxCount: MAX_PERIODS,
   });
   if (validated.length === 0) {
-    // a date filter drives the chart but has no usable periods yet —
+    // a date filter governs the chart but has no usable periods yet —
     // return an always-empty query instead of erroring (the UI explains)
-    if (source === "filter") {
+    if (source === "filter" || source === "date_filter") {
       return buildQueryContext(formData, {
         buildQuery: (baseQueryObject: QueryObject) => [
           {

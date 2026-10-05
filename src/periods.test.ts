@@ -258,25 +258,44 @@ test("resolvePeriodsSource: any date filter beats ownState beats config", () => 
     periods: [{ start: "2026-02-01", end: "2026-02-03" }],
     source: "filter",
   });
-  // the period_ranges filter present but empty — the chart defers with
-  // zero periods
+  // the period_ranges filter present but empty — the chart keeps its own
+  // configured periods (they are simply not overridden), pickers hidden
   expect(
     resolvePeriodsSource({ periods: form }, form, {
       custom_form_data: [{ col: "ds" }],
     }),
-  ).toEqual({ periods: [], source: "filter" });
-  // an applied TEMPORAL_RANGE clause from any other date filter
+  ).toEqual({ periods: form, source: "date_filter" });
+  // another date filter (TEMPORAL_RANGE from calendar/built-in/charts):
+  // the chart keeps its own configured periods
   expect(
     resolvePeriodsSource({ periods: form }, form, {
       filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
     }),
-  ).toEqual({ periods: [], source: "filter" });
+  ).toEqual({ periods: form, source: "date_filter" });
   // a time_range override (built-in Time range filter)
   expect(
     resolvePeriodsSource({ periods: form }, form, {
       time_range: "2026-01-01 : 2026-02-01",
     }),
-  ).toEqual({ periods: [], source: "filter" });
+  ).toEqual({ periods: form, source: "date_filter" });
+  // a simple clause on the chart's own time column (calendar filter)
+  expect(
+    resolvePeriodsSource(
+      { periods: form },
+      form,
+      { filters: [{ col: "ds", op: ">=", val: "2026-01-01" }] },
+      "ds",
+    ),
+  ).toEqual({ periods: form, source: "date_filter" });
+  // the same clause on a DIFFERENT column is not a date filter for this chart
+  expect(
+    resolvePeriodsSource(
+      { periods: form },
+      form,
+      { filters: [{ col: "other_col", op: ">=", val: "2026-01-01" }] },
+      "ds",
+    ),
+  ).toEqual({ periods: form, source: "own" });
   // the chart's own span tag is NOT a signal (no self-deferral)
   expect(
     resolvePeriodsSource({ periods: form }, form, {
@@ -320,6 +339,20 @@ test("isDateFilterPresent detects every date-filter shape", () => {
       filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
     }),
   ).toBe(true);
+  // a simple clause on the chart's own time column (calendar filter)
+  expect(
+    isDateFilterPresent(
+      { filters: [{ col: "ds", op: ">=", val: "2026-01-01" }] },
+      "ds",
+    ),
+  ).toBe(true);
+  // the same clause on another column is not a date filter for this chart
+  expect(
+    isDateFilterPresent(
+      { filters: [{ col: "other", op: ">=", val: "2026-01-01" }] },
+      "ds",
+    ),
+  ).toBe(false);
   expect(
     isDateFilterPresent({
       adhoc_filters: [{ sqlExpression: `${PERIOD_RANGES_TAG} (ds >= 'a')` }],

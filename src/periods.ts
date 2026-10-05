@@ -296,7 +296,11 @@ export type ValidatedPeriod = {
 };
 
 /** Where the rendered periods come from */
-export type PeriodsSource = "filter" | "own" | "config";
+export type PeriodsSource =
+  | "filter" // structured ranges from the period_ranges filter
+  | "date_filter" // another date filter is applied; chart config periods
+  | "own" // the on-chart pickers
+  | "config"; // the control-panel value
 
 /**
  * Tag prefix of the OR clause emitted by the `period_ranges` native filter
@@ -335,17 +339,22 @@ export function extractFilterPeriods(extraFormData: unknown): PeriodRange[] {
 }
 
 /**
- * True when ANY date/time-range filter is present on the dashboard and
- * reaches this chart through the aggregated extra_form_data:
+ * True when ANY date/time-range filter reaches this chart through the
+ * aggregated extra_form_data:
  * - the period_ranges filter (structured entries or its tagged clause),
  * - any native/cross filter emitting TEMPORAL_RANGE clauses (calendar,
  *   built-in time range, other charts),
- * - a time_range override (built-in Time range filter).
+ * - a time_range override (built-in Time range filter),
+ * - simple clauses on THIS chart's own time column (e.g. the calendar
+ *   filter's ==/>=/<= on the same temporal column).
  *
  * This chart's own span (tagged) is intentionally NOT a signal — otherwise
  * the chart would defer to itself.
  */
-export function isDateFilterPresent(extraFormData: unknown): boolean {
+export function isDateFilterPresent(
+  extraFormData: unknown,
+  ownTimeColumn?: string,
+): boolean {
   const bag = (extraFormData || {}) as {
     custom_form_data?: unknown;
     filters?: unknown;
@@ -357,10 +366,18 @@ export function isDateFilterPresent(extraFormData: unknown): boolean {
     return true;
   }
   if (Array.isArray(bag.filters)) {
-    const hasTemporal = bag.filters.some(
-      item => (item as { op?: unknown })?.op === "TEMPORAL_RANGE",
-    );
-    if (hasTemporal) {
+    const hasDateClause = bag.filters.some(item => {
+      const clause = item as { op?: unknown; col?: unknown };
+      if (clause?.op === "TEMPORAL_RANGE") {
+        return true;
+      }
+      return (
+        Boolean(ownTimeColumn) &&
+        clause?.col === ownTimeColumn &&
+        ["==", ">=", "<=", ">", "<", "IN"].includes(clause.op as string)
+      );
+    });
+    if (hasDateClause) {
       return true;
     }
   }
@@ -397,29 +414,38 @@ export function stripTaggedPeriodRangeFilters(adhocFilters: unknown): unknown[] 
 
 /**
  * Authoritative source of the displayed/queried periods, highest priority
- * first: ANY date/time filter reaching this chart (structured periods from
- * the period_ranges filter, or just its presence — in which case the chart
- * defers even before the filter has values), the dashboard ownState (the
- * on-chart pickers), the control-panel value.
+ * first:
+ * - structured ranges from the period_ranges filter ('filter') — the chart
+ *   defers to it completely, even before ranges are selected;
+ * - ANY other date filter applied on the dashboard ('date_filter') — the
+ *   pickers hide, but the chart keeps its own configured periods and they
+ *   are narrowed by the filter through the base query filters;
+ * - the dashboard ownState (the on-chart pickers);
+ * - the control-panel value.
  */
 export function resolvePeriodsSource(
   ownState: { periods?: unknown } | null | undefined,
   formPeriods: unknown,
   extraFormData: unknown = null,
+  ownTimeColumn?: string,
 ): { periods: PeriodRange[]; source: PeriodsSource } {
-  if (isDateFilterPresent(extraFormData)) {
-    return {
-      periods: extractFilterPeriods(extraFormData),
-      source: "filter",
-    };
+  const structured = extractFilterPeriods(extraFormData);
+  if (structured.length > 0) {
+    return { periods: structured, source: "filter" };
+  }
+  const formPeriodsList = Array.isArray(formPeriods)
+    ? (formPeriods as PeriodRange[])
+    : [];
+  if (isDateFilterPresent(extraFormData, ownTimeColumn)) {
+    // another date filter governs the window; the comparison periods stay
+    // the chart's own configured ones (ownState is ignored — its pickers
+    // are hidden)
+    return { periods: formPeriodsList, source: "date_filter" };
   }
   if (ownState && Array.isArray(ownState.periods)) {
     return { periods: ownState.periods as PeriodRange[], source: "own" };
   }
-  return {
-    periods: Array.isArray(formPeriods) ? (formPeriods as PeriodRange[]) : [],
-    source: "config",
-  };
+  return { periods: formPeriodsList, source: "config" };
 }
 
 /** Structured validation issues; UI translates them via t() */

@@ -197,15 +197,21 @@ export default function transformProps(
     null,
   );
 
-  // On the dashboard ANY date/time filter reaching the chart outranks the
-  // pickers (period_ranges structured channel, TEMPORAL_RANGE clauses,
-  // time_range override); then the on-chart pickers (ownState), then the
-  // control-panel value. Same source as buildQuery.
+  // On the dashboard ANY date/time filter reaching the chart changes the
+  // period source (see resolvePeriodsSource). Same source as buildQuery.
   const ownStateBag = ownState as { periods?: unknown } | undefined;
   const extraFormData = (rawFormData as { extra_form_data?: unknown } | undefined)
     ?.extra_form_data;
+  const ownTimeColumn = getColumnLabel(
+    ensureIsArray(fd.x_axis ?? raw.x_axis)[0],
+  );
   const { periods: resolvedPeriods, source: periodsSource } =
-    resolvePeriodsSource(ownStateBag, fd.periods ?? raw.periods, extraFormData);
+    resolvePeriodsSource(
+      ownStateBag,
+      fd.periods ?? raw.periods,
+      extraFormData,
+      ownTimeColumn,
+    );
   const periods = normalizePeriods(resolvedPeriods);
 
   let statusKind: StatusKind = null;
