@@ -88,6 +88,7 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
     periodsLabel,
     timeColumn,
     setDataMask,
+    filterState,
   } = props;
   const theme = useTheme();
 
