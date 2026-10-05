@@ -1,0 +1,121 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+import { useMemo } from "react";
+import { t } from "@apache-superset/core/translation";
+import { styled, useTheme } from "@apache-superset/core/theme";
+import { applyThemeColors } from "./chartOptions";
+import Echart from "./Echart";
+import PeriodsToolbar from "./PeriodsToolbar";
+import type { PeriodComparisonTransformedProps, StatusKind } from "./types";
+
+const Styles = styled.div<{ width: string; height: string }>`
+  height: ${({ height }) => height};
+  width: ${({ width }) => width};
+  display: flex;
+  flex-direction: column;
+`;
+
+const ToolbarRow = styled.div<{ height: string }>`
+  flex: 0 0 auto;
+  min-height: ${({ height }) => height};
+  display: flex;
+  align-items: center;
+  padding: ${({ theme }) => theme.sizeUnit / 2}px
+    ${({ theme }) => theme.sizeUnit}px 0;
+`;
+
+const Status = styled.div`
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: ${({ theme }) => theme.colorTextSecondary};
+  font-size: 14px;
+  padding: ${({ theme }) => theme.sizeUnit * 2}px;
+  text-align: center;
+`;
+
+const ChartBox = styled.div`
+  flex: 1 1 auto;
+  min-height: 0;
+`;
+
+const STATUS_MESSAGES: Record<Exclude<StatusKind, null>, string> = {
+  no_metric: "Select a metric",
+  no_time_column: "Select a time column",
+  no_periods: "Add at least one period",
+  no_data: "No data for the selected periods",
+};
+
+const TOOLBAR_HEIGHT = 44;
+
+export default function PeriodComparison(props: PeriodComparisonTransformedProps) {
+  const {
+    width,
+    height,
+    echartOptions,
+    statusKind,
+    periods,
+    timeColumn,
+    setDataMask,
+  } = props;
+  const theme = useTheme();
+
+  const themedOptions = useMemo(
+    () =>
+      applyThemeColors(echartOptions, {
+        text: theme.colorText,
+        textSecondary: theme.colorTextSecondary,
+        line: theme.colorSplit,
+        surface: theme.colorBgContainer,
+      }),
+    [echartOptions, theme],
+  );
+
+  const hasToolbar = Boolean(timeColumn);
+
+  return (
+    <Styles
+      width={typeof width === "number" ? `${width}px` : width}
+      height={typeof height === "number" ? `${height}px` : height}
+    >
+      {hasToolbar ? (
+        <ToolbarRow height={`${TOOLBAR_HEIGHT}px`}>
+          <PeriodsToolbar
+            periods={periods}
+            timeColumn={timeColumn}
+            setDataMask={setDataMask}
+          />
+        </ToolbarRow>
+      ) : null}
+      {statusKind ? (
+        <Status role="status">{t(STATUS_MESSAGES[statusKind])}</Status>
+      ) : (
+        <ChartBox>
+          <Echart
+            options={themedOptions}
+            ariaLabel={t(
+              "Period comparison line chart: metric values of up to 5 periods on a relative axis",
+            )}
+          />
+        </ChartBox>
+      )}
+    </Styles>
+  );
+}
