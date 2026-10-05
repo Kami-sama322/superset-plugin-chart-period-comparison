@@ -431,12 +431,17 @@ export function extractAppliedDateRange(extraFormData: unknown): {
       if (bound === null) {
         return;
       }
-      if (clause.op === "==" || clause.op === ">=" || clause.op === ">") {
+      if (clause.op === "==") {
         lower.push(bound);
-        if (clause.op === "==") {
-          upper.push(bound);
-        }
-      } else if (clause.op === "<=" || clause.op === "<") {
+        upper.push(bound + DAY_MS);
+      } else if (clause.op === ">=") {
+        lower.push(bound);
+      } else if (clause.op === ">") {
+        lower.push(bound + DAY_MS);
+      } else if (clause.op === "<=") {
+        // inclusive upper bound → exclusive end is the next day
+        upper.push(bound + DAY_MS);
+      } else if (clause.op === "<") {
         upper.push(bound);
       }
     });

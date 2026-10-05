@@ -330,7 +330,7 @@ test("extractFilterPeriods reads custom_form_data entries", () => {
 });
 
 test("extractAppliedDateRange reads the window applied by any date filter", () => {
-  // calendar-style >=/<= pair (on any column)
+  // calendar-style >=/<= pair (inclusive upper bound)
   expect(
     extractAppliedDateRange({
       filters: [
@@ -338,7 +338,7 @@ test("extractAppliedDateRange reads the window applied by any date filter", () =
         { col: "ds", op: "<=", val: "2026-01-07" },
       ],
     }),
-  ).toEqual({ startMs: Date.UTC(2026, 0, 6), endMs: Date.UTC(2026, 0, 7) });
+  ).toEqual({ startMs: Date.UTC(2026, 0, 6), endMs: Date.UTC(2026, 0, 8) });
   // built-in time range override
   expect(
     extractAppliedDateRange({

@@ -161,6 +161,8 @@ export type ChartOptionsInput = {
   areaOpacity: number;
   scale: Scale;
   showLegend: boolean;
+  /** Hide fully-empty series from the legend (date-filter narrowing) */
+  hideEmptyLegendEntries?: boolean;
   showZoom: boolean;
   gridColor?: string | null;
   axisColor?: string | null;
@@ -185,6 +187,7 @@ export function buildEchartOptions(
     areaOpacity,
     scale,
     showLegend,
+    hideEmptyLegendEntries,
     showZoom,
     gridColor,
     axisColor,
@@ -192,6 +195,9 @@ export function buildEchartOptions(
   } = input;
 
   const seriesCount = series.length;
+  const legendNames = hideEmptyLegendEntries
+    ? series.filter(item => item.hasData).map(item => item.name)
+    : series.map(item => item.name);
 
   const lineSeries = series.map((item, index) => {
     const color = item.color || DEFAULT_PALETTE[index % DEFAULT_PALETTE.length];
@@ -284,6 +290,7 @@ export function buildEchartOptions(
       type: "scroll",
       top: 0,
       left: "center",
+      data: legendNames,
       ...(axisColor ? { textStyle: { color: axisColor } } : {}),
     },
     grid: {

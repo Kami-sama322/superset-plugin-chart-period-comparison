@@ -290,3 +290,19 @@ test("tooltip escapes user-authored series names", () => {
   expect(html).not.toContain("<img");
   expect(html).toContain("&lt;img");
 });
+
+test("legend hides fully-empty series when a date filter narrows the chart", () => {
+  const withEmpty = buildEchartOptions({
+    ...baseInput,
+    series: [series([10, null, 30]), series([null, null, null])],
+    hideEmptyLegendEntries: true,
+  });
+  const legend = withEmpty.legend as Record<string, unknown>;
+  expect(legend.data).toEqual(["s"]);
+
+  const keepAll = buildEchartOptions({
+    ...baseInput,
+    series: [series([10, null, 30]), series([null, null, null])],
+  });
+  expect((keepAll.legend as Record<string, unknown>).data).toEqual(["s", "s"]);
+});

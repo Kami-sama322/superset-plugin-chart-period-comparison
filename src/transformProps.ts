@@ -291,6 +291,8 @@ export default function transformProps(
         areaOpacity,
         scale,
         showLegend,
+        hideEmptyLegendEntries:
+          periodsSource === "filter" || periodsSource === "date_filter",
         showZoom,
         gridColor: chartColors?.grid || undefined,
         axisColor: chartColors?.axis || undefined,
