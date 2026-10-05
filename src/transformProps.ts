@@ -25,6 +25,7 @@ import {
   getNumberFormatter,
 } from "@superset-ui/core";
 import {
+  extractFilterPeriods,
   formatHourAxisLabel,
   formatPeriodLabel,
   parseGrain,
@@ -197,16 +198,20 @@ export default function transformProps(
     null,
   );
 
-  // On the dashboard the on-chart pickers write ownState; it is
-  // authoritative as soon as it carries a `periods` key (same source as
-  // buildQuery), the control-panel value is the default.
+  // On the dashboard the on-chart pickers write ownState; the period_ranges
+  // native filter outranks both (its structured ranges arrive via
+  // extra_form_data.custom_form_data). Same source as buildQuery.
   const ownStateBag = ownState as { periods?: unknown } | undefined;
-  const periods = normalizePeriods(
-    resolvePeriodsSource(ownStateBag, fd.periods ?? raw.periods),
+  const filterPeriods = extractFilterPeriods(
+    (rawFormData as { extra_form_data?: unknown } | undefined)?.extra_form_data,
   );
+  const { periods: resolvedPeriods, source: periodsSource } =
+    resolvePeriodsSource(ownStateBag, fd.periods ?? raw.periods, filterPeriods);
+  const periods = normalizePeriods(resolvedPeriods);
 
   let statusKind: StatusKind = null;
   let echartOptions: Record<string, unknown> = {};
+  let periodsLabel: string | undefined;
 
   const metric = fd.metric ?? raw.metric;
   const xAxis = ensureIsArray(fd.x_axis ?? raw.x_axis)[0];
@@ -217,12 +222,13 @@ export default function transformProps(
     statusKind = "no_time_column";
   } else if (periods.length === 0) {
     statusKind = "no_periods";
-  } else {
-    const { periods: validated } = validatePeriods(periods);
-    if (validated.length === 0) {
-      statusKind = "no_periods";
     } else {
-      const timeColumn = getColumnLabel(xAxis) || "";
+      const { periods: validated } = validatePeriods(periods);
+      if (validated.length === 0) {
+        statusKind = "no_periods";
+      } else {
+        periodsLabel = validated.map(formatPeriodLabel).join(", ");
+        const timeColumn = getColumnLabel(xAxis) || "";
       const metricLabel = getMetricLabel(metric);
       const axisLength = Math.max(
         ...validated.map(period => periodBucketCount(period, grain)),
@@ -288,6 +294,8 @@ export default function transformProps(
     echartOptions,
     statusKind,
     periods,
+    periodsSource,
+    periodsLabel,
     timeColumn: getColumnLabel(xAxis) || "",
     grain,
     setDataMask: hooks?.setDataMask ?? noOp,

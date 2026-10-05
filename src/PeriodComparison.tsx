@@ -56,6 +56,18 @@ const ChartBox = styled.div`
   min-height: 0;
 `;
 
+const FilterPlaque = styled.div`
+  flex: 0 0 auto;
+  min-height: ${({ height }) => height};
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.sizeUnit / 2}px;
+  padding: ${({ theme }) => theme.sizeUnit / 2}px
+    ${({ theme }) => theme.sizeUnit}px 0;
+  font-size: 12px;
+  color: ${({ theme }) => theme.colorTextSecondary};
+`;
+
 const STATUS_MESSAGES: Record<Exclude<StatusKind, null>, string> = {
   no_metric: "Select a metric",
   no_time_column: "Select a time column",
@@ -72,6 +84,8 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
     echartOptions,
     statusKind,
     periods,
+    periodsSource,
+    periodsLabel,
     timeColumn,
     setDataMask,
   } = props;
@@ -96,13 +110,21 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
       height={typeof height === "number" ? `${height}px` : height}
     >
       {hasToolbar ? (
-        <ToolbarRow height={`${TOOLBAR_HEIGHT}px`}>
-          <PeriodsToolbar
-            periods={periods}
-            timeColumn={timeColumn}
-            setDataMask={setDataMask}
-          />
-        </ToolbarRow>
+        periodsSource === "filter" ? (
+          <FilterPlaque height={`${TOOLBAR_HEIGHT}px`}>
+            <span>
+              {t("Periods from filter")}: {periodsLabel || "—"}
+            </span>
+          </FilterPlaque>
+        ) : (
+          <ToolbarRow height={`${TOOLBAR_HEIGHT}px`}>
+            <PeriodsToolbar
+              periods={periods}
+              timeColumn={timeColumn}
+              setDataMask={setDataMask}
+            />
+          </ToolbarRow>
+        )
       ) : null}
       {statusKind ? (
         <Status role="status">{t(STATUS_MESSAGES[statusKind])}</Status>

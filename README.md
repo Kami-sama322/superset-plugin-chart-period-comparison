@@ -87,6 +87,16 @@ Verify: **Charts → + Chart → Period Comparison**.
 - Enable **cross-filtering** on the dashboard for the span filter to reach
   other charts.
 
+### Integration with the Period ranges filter
+
+Install the [`superset-plugin-filter-period-ranges`](https://github.com/Kami-sama322/superset-plugin-filter-period-ranges)
+native filter and add it to the dashboard (in the chart's scope): the
+chart follows the filter's ranges — the on-chart pickers are replaced by a
+"Periods from filter" plaque, and the ranges are re-applied to the chart's
+own time column in its queries. Priority: filter → on-chart pickers
+(ownState) → control-panel config. Without the filter (or out of scope)
+the pickers work as before.
+
 ### Behavior notes
 
 - The span filter intersects with dashboard date filters (standard Superset

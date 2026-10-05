@@ -116,6 +116,10 @@ export type PeriodComparisonTransformedProps = {
   statusKind: StatusKind;
   /** Raw period ranges for the on-chart pickers */
   periods: PeriodRange[];
+  /** Where the rendered periods come from (drives the toolbar visibility) */
+  periodsSource: "filter" | "own" | "config";
+  /** Formatted labels of the rendered periods ("05.01–09.01.2026, …") */
+  periodsLabel?: string;
   timeColumn: string;
   grain: ComparisonGrain;
   setDataMask: SetDataMaskHook;

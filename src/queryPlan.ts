@@ -55,13 +55,17 @@ export type PlannedQuery = {
   time_grain_sqla: string;
   extras: Record<string, unknown>;
   filters: FilterClause[];
+  /** Untagged adhoc filters inherited from the base query */
+  adhoc_filters?: unknown[];
   orderby: undefined;
   row_limit?: number;
 };
 
 export type QueryPlanInput = {
-  /** Base query filters (adhoc + dashboard cross/native filters) */
+  /** Base query simple filters (extra_form_data.filters etc.) */
   baseFilters: FilterClause[];
+  /** Base query adhoc filters with tagged period_ranges clauses stripped */
+  baseAdhocFilters?: unknown[];
   baseExtras?: Record<string, unknown>;
   periods: ValidatedPeriod[];
   timeColumn: string;
@@ -94,6 +98,7 @@ export function periodRangeFilter(
 export function buildPeriodQueries(input: QueryPlanInput): PlannedQuery[] {
   const {
     baseFilters,
+    baseAdhocFilters,
     baseExtras,
     periods,
     timeColumn,
@@ -103,6 +108,7 @@ export function buildPeriodQueries(input: QueryPlanInput): PlannedQuery[] {
     rowLimit,
   } = input;
   const timeGrain = GRAIN_TO_TIME_GRAIN[grain];
+  const adhoc = baseAdhocFilters || [];
   return periods.map(period => ({
     // keep the temporal column in `columns` so buildQueryContext's
     // normalizeTimeColumn converts it into a BASE_AXIS with the grain
@@ -116,6 +122,7 @@ export function buildPeriodQueries(input: QueryPlanInput): PlannedQuery[] {
       ...(baseFilters || []),
       periodRangeFilter(period, timeColumn, grain),
     ],
+    ...(adhoc.length > 0 ? { adhoc_filters: adhoc } : {}),
     orderby: undefined,
     ...(rowLimit !== undefined ? { row_limit: rowLimit } : {}),
   }));

@@ -83,6 +83,59 @@ test("ownState periods override the control-panel value", () => {
   );
 });
 
+test("filter periods from extra_form_data.custom_form_data drive the queries", () => {
+  const context = buildQuery({
+    ...formData(),
+    extra_form_data: {
+      custom_form_data: [
+        { col: "events_dt", start: "2026-06-01T00:00:00.000Z", end: "2026-06-05T23:59:59.999Z" },
+      ],
+    },
+  } as never);
+  expect(context.queries).toHaveLength(1);
+  expect(context.queries[0].filters?.at(-1)?.val).toBe(
+    "2026-06-01 00:00:00 : 2026-06-06 00:00:00",
+  );
+});
+
+test("tagged period_ranges adhoc clauses are stripped from the base filters", () => {
+  const taggedClause = {
+    clause: "WHERE",
+    expressionType: "SQL",
+    sqlExpression: "/* period_ranges:v1 */ (events_dt >= '2026-06-01')",
+  };
+  const regularAdhoc = {
+    clause: "WHERE",
+    expressionType: "SQL",
+    sqlExpression: "region IN ('EU')",
+  };
+  const context = buildQuery({
+    ...formData(),
+    extra_form_data: {
+      adhoc_filters: [taggedClause, regularAdhoc],
+      custom_form_data: [
+        { col: "events_dt", start: "2026-06-01T00:00:00.000Z", end: "2026-06-05T23:59:59.999Z" },
+      ],
+    },
+  } as never);
+  context.queries.forEach(query => {
+    // the tagged clause targeting the filter's column must not AND-narrow
+    // this chart's own per-period ranges
+    expect(query.filters?.some(f => f.col === "events_dt")).toBe(false);
+    // untagged adhoc filters survive in the query's adhoc_filters
+    expect(
+      (query.adhoc_filters as { sqlExpression: string }[])?.some(
+        f => f.sqlExpression === "region IN ('EU')",
+      ),
+    ).toBe(true);
+    expect(
+      (query.adhoc_filters as { sqlExpression: string }[])?.some(f =>
+        f.sqlExpression?.startsWith("/* period_ranges"),
+      ),
+    ).toBe(false);
+  });
+});
+
 test("throws without a metric or a time column", () => {
   expect(() => buildQuery(formData({ metric: undefined }))).toThrow(
     "Select a metric",

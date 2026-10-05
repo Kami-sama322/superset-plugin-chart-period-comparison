@@ -20,6 +20,7 @@ import {
   bucketCount,
   bucketIndexForTs,
   buildBucketStarts,
+  extractFilterPeriods,
   formatBucketDate,
   formatHourAxisLabel,
   formatPeriodLabel,
@@ -32,8 +33,10 @@ import {
   snapEndExclusiveMs,
   snapStartMs,
   spanFilterValue,
+  stripTaggedPeriodRangeFilters,
   validatePeriods,
   DAY_MS,
+  PERIOD_RANGES_TAG,
 } from "./periods";
 
 const utc = (
@@ -224,15 +227,76 @@ test("validatePeriods truncates above the limit and warns on overlap", () => {
   expect(zeroLength.errors).toEqual([{ type: "end_before_start", index: 0 }]);
 });
 
-test("resolvePeriodsSource: ownState wins once it carries periods", () => {
+test("resolvePeriodsSource: filter beats ownState beats config", () => {
   const form = [{ start: "2026-01-01", end: "2026-01-02" }];
-  expect(resolvePeriodsSource(undefined, form)).toEqual(form);
-  expect(resolvePeriodsSource({}, form)).toEqual(form);
-  expect(resolvePeriodsSource({ periods: [] }, form)).toEqual([]);
-  expect(resolvePeriodsSource({ periods: [{ start: "x", end: "y" }] }, form)).toEqual([
-    { start: "x", end: "y" },
+  const filter = [{ start: "2026-02-01", end: "2026-02-03" }];
+  expect(resolvePeriodsSource(undefined, form)).toEqual({
+    periods: form,
+    source: "config",
+  });
+  expect(resolvePeriodsSource({}, form)).toEqual({
+    periods: form,
+    source: "config",
+  });
+  expect(resolvePeriodsSource({ periods: [] }, form)).toEqual({
+    periods: [],
+    source: "own",
+  });
+  expect(resolvePeriodsSource({ periods: form }, undefined)).toEqual({
+    periods: form,
+    source: "own",
+  });
+  expect(resolvePeriodsSource({ periods: form }, undefined, filter)).toEqual({
+    periods: filter,
+    source: "filter",
+  });
+  // an empty filter set falls through to ownState
+  expect(resolvePeriodsSource({ periods: form }, form, [])).toEqual({
+    periods: form,
+    source: "own",
+  });
+});
+
+test("extractFilterPeriods reads custom_form_data entries", () => {
+  expect(extractFilterPeriods(undefined)).toEqual([]);
+  expect(extractFilterPeriods({})).toEqual([]);
+  expect(
+    extractFilterPeriods({
+      filters: [],
+      custom_form_data: [
+        { col: "ds", start: "2026-01-05T00:00:00.000Z", end: "2026-01-09T23:59:59.999Z" },
+        { col: "ds" },
+        "garbage",
+      ],
+    }),
+  ).toEqual([
+    { start: "2026-01-05T00:00:00.000Z", end: "2026-01-09T23:59:59.999Z" },
   ]);
-  expect(resolvePeriodsSource({ periods: null }, form)).toEqual(form);
+});
+
+test("stripTaggedPeriodRangeFilters removes only tagged SQL clauses", () => {
+  const tagged = {
+    clause: "WHERE",
+    expressionType: "SQL",
+    sqlExpression: `${PERIOD_RANGES_TAG} (ds >= 'a')`,
+  };
+  const regular = {
+    clause: "WHERE",
+    expressionType: "SIMPLE",
+    operator: "==",
+    subject: "region",
+    comparator: "EU",
+  };
+  const otherSql = {
+    clause: "WHERE",
+    expressionType: "SQL",
+    sqlExpression: "region IN ('EU')",
+  };
+  expect(stripTaggedPeriodRangeFilters(undefined)).toEqual([]);
+  expect(stripTaggedPeriodRangeFilters([tagged, regular, otherSql])).toEqual([
+    regular,
+    otherSql,
+  ]);
 });
 
 test("parseGrain falls back to day on unknown values", () => {

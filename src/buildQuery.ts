@@ -24,7 +24,14 @@ import {
   QueryFormData,
   QueryObject,
 } from "@superset-ui/core";
-import { MAX_PERIODS, parseGrain, resolvePeriodsSource, validatePeriods } from "./periods";
+import {
+  extractFilterPeriods,
+  MAX_PERIODS,
+  parseGrain,
+  resolvePeriodsSource,
+  stripTaggedPeriodRangeFilters,
+  validatePeriods,
+} from "./periods";
 import { buildPeriodQueries } from "./queryPlan";
 import type { PeriodComparisonQueryFormData } from "./types";
 
@@ -63,11 +70,17 @@ export default function buildQuery(
     throw new Error("Select a time column");
   }
 
-  const periods = resolvePeriodsSource(
+  // Highest priority first: period_ranges native filter (structured
+  // channel), dashboard ownState (on-chart pickers), control-panel value
+  const filterPeriods = extractFilterPeriods(
+    (formData as { extra_form_data?: unknown }).extra_form_data,
+  );
+  const { periods: rawPeriodList } = resolvePeriodsSource(
     options.ownState,
     formData.periods,
+    filterPeriods,
   );
-  const { periods: validated, errors } = validatePeriods(periods, {
+  const { periods: validated, errors } = validatePeriods(rawPeriodList, {
     maxCount: MAX_PERIODS,
   });
   if (validated.length === 0) {
@@ -83,7 +96,13 @@ export default function buildQuery(
   return buildQueryContext(formData, {
     buildQuery: (baseQueryObject: QueryObject) =>
       buildPeriodQueries({
+        // the tagged OR clauses belong to OTHER charts (they filter the
+        // filter's own column) — this chart re-applies the ranges to its
+        // own time column via its per-period clauses
         baseFilters: (baseQueryObject.filters || []) as never[],
+        baseAdhocFilters: stripTaggedPeriodRangeFilters(
+          baseQueryObject.adhoc_filters,
+        ),
         baseExtras: baseQueryObject.extras,
         periods: validated,
         timeColumn,

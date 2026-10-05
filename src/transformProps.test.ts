@@ -24,7 +24,7 @@ const PERIOD = { start: "2026-01-05", end: "2026-01-05" };
  * ChartProps.formData is camelCased by the core (convertKeysToCamelCase),
  * rawFormData stays snake_case — exactly what the dashboard/explore pass.
  */
-function chartProps(grain, camel) {
+function chartProps(grain, camel, extraFormData?) {
   const raw = {
     viz_type: "chart_period_comparison",
     datasource: "1__table",
@@ -47,7 +47,7 @@ function chartProps(grain, camel) {
     width: 800,
     height: 600,
     formData,
-    rawFormData: raw,
+    rawFormData: extraFormData ? { ...raw, extra_form_data: extraFormData } : raw,
     queriesData: [
       {
         data: [
@@ -88,4 +88,26 @@ test("the default grain is day", () => {
   const props = transformProps(chartProps(undefined, true));
   const labels = props.echartOptions.xAxis.data;
   expect(labels[0]).toBe("Day 1");
+});
+
+test("periods from the period_ranges filter win and hide the pickers", () => {
+  const props = transformProps(
+    chartProps("day", true, {
+      custom_form_data: [
+        { col: "events_dt", start: "2026-03-02T00:00:00.000Z", end: "2026-03-06T23:59:59.999Z" },
+        { col: "events_dt", start: "2026-04-06T00:00:00.000Z", end: "2026-04-10T23:59:59.999Z" },
+      ],
+    }),
+  );
+  expect(props.periodsSource).toBe("filter");
+  expect(props.periods).toHaveLength(2);
+  expect(props.periods[0].start).toBe("2026-03-02");
+  expect(props.periodsLabel).toContain("02.03");
+  expect(props.periodsLabel).toContain("06.04");
+});
+
+test("without the filter the pickers stay active (source own/config)", () => {
+  const props = transformProps(chartProps("day", true));
+  expect(props.periodsSource).toBe("config");
+  expect(props.periodsLabel).toContain("05.01");
 });
