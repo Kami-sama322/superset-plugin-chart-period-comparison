@@ -351,9 +351,18 @@ export function validatePeriods(
   }
   const periods: ValidatedPeriod[] = [];
   list.slice(0, maxCount).forEach((entry, index) => {
-    const source = (entry || {}) as Partial<PeriodRange>;
-    const startMs = parsePeriodMs(source.start);
-    const endMs = parsePeriodEndMs(source.end);
+    const source = (entry || {}) as Partial<PeriodRange> & {
+      startMs?: unknown;
+      endMs?: unknown;
+    };
+    // Two accepted shapes: picker values ({start, end} wall-clock strings)
+    // and pre-parsed windows ({startMs, endMs} epoch ms — e.g. a dashboard
+    // date filter's applied range in buildQuery). Numeric bounds are
+    // already exact inclusive epoch values.
+    const rawStart = source.start ?? source.startMs;
+    const rawEnd = source.end ?? source.endMs;
+    const startMs = parsePeriodMs(rawStart);
+    const endMs = parsePeriodEndMs(rawEnd);
     if (startMs === null || endMs === null) {
       errors.push({ type: "invalid_dates", index });
       return;

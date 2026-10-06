@@ -112,7 +112,7 @@ test("periods from extra_form_data.custom_form_data define the span", () => {
   );
 });
 
-test("tagged date-filter clauses (foreign and own) are stripped from the base", () => {
+test("tagged date-filter clauses (foreign and own) never reach the query", () => {
   const foreignTagged = {
     clause: "WHERE",
     expressionType: "SQL",
@@ -134,13 +134,97 @@ test("tagged date-filter clauses (foreign and own) are stripped from the base", 
       adhoc_filters: [foreignTagged, ownSpan, regularAdhoc],
     },
   } as never);
-  const adhoc = context.queries[0].adhoc_filters as {
-    sqlExpression?: string;
-  }[];
   // neither the foreign filter clause nor the chart's own span may
-  // AND-narrow the single span query built from the structured periods
-  expect(adhoc.some(f => f.sqlExpression?.startsWith("/* period"))).toBe(false);
-  expect(adhoc.some(f => f.sqlExpression === "region IN ('EU')")).toBe(true);
+  // AND-narrow the single span query — in the real pipeline the core moves
+  // SQL adhoc clauses into extras.where, so assert the whole query payload
+  const payload = JSON.stringify(context.queries[0]);
+  expect(payload).not.toContain("/* period_ranges:v1 */");
+  expect(payload).not.toContain("/* period_comparison:own:v1 */");
+  // untagged SQL filters still apply (via extras.where)
+  expect((context.queries[0].extras as { where?: string }).where).toContain(
+    "region IN ('EU')",
+  );
+});
+
+test("the chart's own stale span does not duplicate or narrow the span clause", () => {
+  const ownStaleSpan = {
+    clause: "WHERE",
+    expressionType: "SQL",
+    sqlExpression:
+      "/* period_comparison:own:v1 */ (events_dt >= '2026-01-05 00:00:00' AND events_dt < '2026-02-07 00:00:00')",
+  };
+  const context = buildQuery(
+    {
+      ...formData(),
+      extra_form_data: { adhoc_filters: [ownStaleSpan] },
+    } as never,
+    {
+      ownState: {
+        periods: [{ start: "2026-03-02", end: "2026-03-06" }],
+      },
+    },
+  );
+  const query = context.queries[0];
+  // the span clause reflects the CURRENT picker value...
+  expect(query.filters?.at(-1)).toEqual({
+    col: "ds",
+    op: "TEMPORAL_RANGE",
+    val: "2026-03-02 00:00:00 : 2026-03-07 00:00:00",
+  });
+  // ...and the stale emitted span is gone entirely (no duplicate window)
+  expect(JSON.stringify(query)).not.toContain("2026-01-05 00:00:00");
+});
+
+test("a calendar filter's window replaces the periods and adds no span clause", () => {
+  const context = buildQuery(
+    formData({
+      extra_form_data: {
+        filters: [
+          { col: "events_dt", op: ">=", val: "2026-10-01" },
+          { col: "events_dt", op: "<=", val: "2026-10-07" },
+        ],
+      },
+    }) as never,
+  );
+  const query = context.queries[0];
+  expect(query.filters).toEqual([
+    { col: "events_dt", op: ">=", val: "2026-10-01" },
+    { col: "events_dt", op: "<=", val: "2026-10-07" },
+  ]);
+  // the filter's clauses already define the window — no span duplication
+  expect(
+    query.filters?.some(clause => clause.op === "TEMPORAL_RANGE"),
+  ).toBe(false);
+  // and never the always-empty query when the window is valid
+  expect(JSON.stringify(query)).not.toContain("1 = 0");
+});
+
+test("a chart's stale own span does not survive a calendar filter takeover", () => {
+  const ownStaleSpan = {
+    clause: "WHERE",
+    expressionType: "SQL",
+    sqlExpression:
+      "/* period_comparison:own:v1 */ (events_dt >= '2026-01-05 00:00:00' AND events_dt < '2026-02-07 00:00:00')",
+  };
+  const context = buildQuery({
+    ...formData(),
+    extra_form_data: {
+      filters: [
+        { col: "events_dt", op: ">=", val: "2026-10-01" },
+        { col: "events_dt", op: "<=", val: "2026-10-07" },
+      ],
+      adhoc_filters: [ownStaleSpan],
+    },
+  } as never);
+  const query = context.queries[0];
+  // the calendar window applies...
+  expect(query.filters).toEqual([
+    { col: "events_dt", op: ">=", val: "2026-10-01" },
+    { col: "events_dt", op: "<=", val: "2026-10-07" },
+  ]);
+  // ...while the stale own span (disjoint from it) is stripped everywhere
+  expect(JSON.stringify(query)).not.toContain("2026-01-05 00:00:00");
+  expect(JSON.stringify(query)).not.toContain("/* period_comparison");
 });
 
 test("throws without a metric or a time column", () => {

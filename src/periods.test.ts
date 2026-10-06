@@ -181,6 +181,22 @@ test("validatePeriods accepts equal-length periods", () => {
   expect(result.periods[0].endMs).toBe(utc(2026, 1, 9) + DAY_MS - 1);
 });
 
+test("validatePeriods accepts pre-parsed epoch-ms windows", () => {
+  // the shape buildQuery passes for a dashboard date filter's applied
+  // window ({startMs, endMs} with an inclusive end)
+  const result = validatePeriods([
+    { startMs: utc(2026, 10, 1), endMs: utc(2026, 10, 8) - 1 },
+  ]);
+  expect(result.errors).toEqual([]);
+  expect(result.periods).toHaveLength(1);
+  expect(result.periods[0].startMs).toBe(utc(2026, 10, 1));
+  expect(result.periods[0].endMs).toBe(utc(2026, 10, 8) - 1);
+  // invalid ms bounds still fail validation
+  const bad = validatePeriods([{ startMs: utc(2026, 10, 8), endMs: utc(2026, 10, 1) }]);
+  expect(bad.periods).toHaveLength(0);
+  expect(bad.errors[0].type).toBe("end_before_start");
+});
+
 test("validatePeriods blocks sets with unequal durations", () => {
   const result = validatePeriods([
     { start: "2026-01-05", end: "2026-01-09" },

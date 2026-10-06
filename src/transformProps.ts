@@ -43,10 +43,13 @@ import { buildSeriesSetFromRows, type Series } from "./seriesData";
 import {
   DEFAULT_FORM_DATA,
   type ChartColors,
+  type LineType,
   type PeriodComparisonQueryFormData,
   type PeriodComparisonTransformedProps,
   type SeriesStyles,
   type StatusKind,
+  type StepPosition,
+  type YScaleType,
 } from "./types";
 
 const GRAIN_LABEL: Record<ComparisonGrain, string> = {
@@ -99,26 +102,24 @@ function pickNumber(
   return max === undefined ? clamped : Math.min(max, clamped);
 }
 
-type ChartSettings = ReturnType<typeof resolveSettings>;
-
 /** Dual-casing (camel/snake) reads of every style/behavior control */
 function resolveSettings(
   fd: PeriodComparisonQueryFormData,
   raw: PeriodComparisonQueryFormData,
-): ChartSettings {
+) {
   return {
     grain: parseGrain(
       pick(fd, "comparisonGrain", "comparison_grain", undefined),
     ),
-    lineType: pick(fd, "lineType", "line_type", "polyline"),
-    stepPosition: pick(fd, "stepPosition", "step_position", "start"),
+    lineType: pick<LineType>(fd, "lineType", "line_type", "polyline"),
+    stepPosition: pick<StepPosition>(fd, "stepPosition", "step_position", "start"),
     lineWidth: pickNumber(fd, "lineWidth", "line_width", 2, 0.5, 6),
     markerSize: pickNumber(fd, "markerSize", "marker_size", 6, 0, 20),
     showValues: pick(fd, "showValues", "show_values", false),
     showExtremes: pick(fd, "showExtremes", "show_extremes", false),
     area: pick(fd, "area", "area", false),
     areaOpacity: pickNumber(fd, "areaOpacity", "area_opacity", 0.3, 0, 1),
-    yScale: pick(fd, "yScale", "y_scale", "linear"),
+    yScale: pick<YScaleType>(fd, "yScale", "y_scale", "linear"),
     showLegend: pick(fd, "showLegend", "show_legend", true),
     showZoom: pick(fd, "showZoom", "show_zoom", false),
     numberFormat: pick(fd, "numberFormat", "number_format", "SMART_NUMBER"),
@@ -136,6 +137,8 @@ function resolveSettings(
     ),
   };
 }
+
+type ChartSettings = ReturnType<typeof resolveSettings>;
 
 function normalizePeriods(value: unknown): PeriodRange[] {
   if (!Array.isArray(value)) {

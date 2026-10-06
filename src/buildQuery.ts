@@ -31,6 +31,7 @@ import {
   resolvePeriodsSource,
   stripTaggedDateFilterClauses,
   validatePeriods,
+  type PeriodRange,
 } from "./periods";
 import { buildEmptyQuery, buildSpanQuery } from "./queryPlan";
 import type { PeriodComparisonQueryFormData } from "./types";
@@ -56,8 +57,10 @@ const ISSUE_TEXT: Record<string, string> = {
  * - the on-chart pickers / control-panel value (span of the periods).
  *
  * The tagged date-filter clauses (the period_ranges filter's OR clause and
- * this chart's own span) are stripped from the base filters — they target
- * other charts and would AND-narrow the single query.
+ * this chart's own span) are stripped from the formData BEFORE the query is
+ * built — they target other charts, would AND-narrow the single query, and
+ * the core moves SQL adhoc clauses into `extras.where` before the callback
+ * sees the base query, where a base-level strip could not reach them.
  */
 export default function buildQuery(
   formData: PeriodComparisonQueryFormData,
@@ -83,12 +86,35 @@ export default function buildQuery(
   const extraFormData = (formData as { extra_form_data?: unknown })
     .extra_form_data;
   const appliedRange = extractAppliedDateRange(extraFormData);
+  // Tagged date-filter clauses (the period_ranges filter's OR clause and
+  // this chart's own span) target OTHER charts. The core's buildQueryObject
+  // consumes adhoc_filters and moves SQL clauses into extras.where BEFORE
+  // the callback below sees the base query, so the base-level strip would
+  // never find them — remove them at the SOURCE, before buildQueryContext
+  // runs processFilters. Untagged filters (simple and SQL) pass through.
+  const stripTagged = (filters: unknown): unknown =>
+    Array.isArray(filters) ? stripTaggedDateFilterClauses(filters) : filters;
+  const cleanFormData = {
+    ...formData,
+    adhoc_filters: stripTagged(formData.adhoc_filters),
+    extra_form_data: extraFormData
+      ? {
+          ...(extraFormData as Record<string, unknown>),
+          adhoc_filters: stripTagged(
+            (extraFormData as { adhoc_filters?: unknown }).adhoc_filters,
+          ),
+        }
+      : extraFormData,
+  } as PeriodComparisonQueryFormData;
   const { periods: rawPeriodList, source } = resolvePeriodsSource(
     options.ownState,
     formData.periods,
     extraFormData,
   );
-  let periodList = rawPeriodList;
+  // a date filter's applied window arrives pre-parsed (epoch ms, inclusive
+  // end); the other sources carry picker strings
+  let periodList: (PeriodRange | { startMs: number; endMs: number })[] =
+    rawPeriodList;
   if (source === "date_filter" && appliedRange) {
     // the dashboard date filter's window IS the period (inclusive end)
     periodList = [
@@ -102,7 +128,7 @@ export default function buildQuery(
     // a date filter governs the chart but has no usable periods yet —
     // return an always-empty query instead of erroring (the UI explains)
     if (source === "filter" || source === "date_filter") {
-      return buildQueryContext(formData, {
+      return buildQueryContext(cleanFormData, {
         buildQuery: (baseQueryObject: QueryObject) => [
           buildEmptyQuery(baseQueryObject) as unknown as QueryObject,
         ],
@@ -117,7 +143,7 @@ export default function buildQuery(
   const grain = parseGrain(formData.comparison_grain);
   const metricLabel = getMetricLabel(metric);
 
-  return buildQueryContext(formData, {
+  return buildQueryContext(cleanFormData, {
     buildQuery: (baseQueryObject: QueryObject) => [
       buildSpanQuery({
         baseFilters: (baseQueryObject.filters || []) as never[],
