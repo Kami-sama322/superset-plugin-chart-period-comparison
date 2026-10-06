@@ -101,7 +101,9 @@ aggregated `extra_form_data` (the calendar filter, the built-in Time range
 filter, `TEMPORAL_RANGE` clauses from other charts, or a simple clause on
 the chart's own time column): the pickers hide, the chart keeps its
 configured periods and they are narrowed by the filter, and the chart
-draws as long as at least one period has data.
+draws as long as at least one period has data. Under the filter the legend
+names the range each line actually shows (the period ∩ the applied
+window), so a line is never labeled with a range it does not contain.
 
 Priority: period_ranges structured ranges → any applied date filter
 (own configured periods) → on-chart pickers (ownState) → control-panel

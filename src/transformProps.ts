@@ -97,10 +97,7 @@ function pickNumber(
   return max === undefined ? clamped : Math.min(max, clamped);
 }
 
-type ChartSettings = ReturnType<typeof resolveSettings> & {
-  /** Legend/plaque suffix of the applied dashboard date-filter window */
-  dateFilterSuffix?: string;
-};
+type ChartSettings = ReturnType<typeof resolveSettings>;
 
 /** Dual-casing (camel/snake) reads of every style/behavior control */
 function resolveSettings(
@@ -184,6 +181,10 @@ type SeriesSetArgs = {
   axisLength: number;
   metricLabel: string;
   timeColumn: string;
+  /** The window applied by dashboard date filters (null when none) */
+  appliedRange?: { startMs: number; endMs: number } | null;
+  /** True when a dashboard date filter governs the chart */
+  narrowedByDateFilter?: boolean;
 };
 
 /** One aligned Series per validated period, styled by the per-line styles */
@@ -195,12 +196,24 @@ function buildSeriesSet({
   axisLength,
   metricLabel,
   timeColumn,
+  appliedRange,
+  narrowedByDateFilter,
 }: SeriesSetArgs): Series[] {
   const seriesCount = validated.length;
   const scale = getScale(settings.yScale);
   const styles = settings.seriesStyles || {};
   return validated.map((period, index) => {
     const style = styles[String(index)];
+    // under a dashboard date filter the legend names the range the line
+    // actually shows: the period intersected with the applied window
+    let name = style?.label || formatPeriodLabel(period);
+    if (narrowedByDateFilter && appliedRange) {
+      const start = Math.max(period.startMs, appliedRange.startMs);
+      const end = Math.min(period.endMs + 1, appliedRange.endMs);
+      if (end > start) {
+        name = style?.label || formatPeriodLabel({ startMs: start, endMs: end });
+      }
+    }
     return buildSeries({
       rows: (queriesData?.[index]?.data as Record<string, unknown>[]) || [],
       period,
@@ -209,9 +222,7 @@ function buildSeriesSet({
       timeColumnLabel: timeColumn,
       axisLength,
       scale,
-      name:
-        style?.label ||
-        `${formatPeriodLabel(period)}${settings.dateFilterSuffix}`,
+      name,
       color: style?.color || undefined,
       symbol: seriesSymbolFor(index, seriesCount, style),
       showSymbol: style?.markerEnabled !== false,
@@ -249,19 +260,12 @@ export default function transformProps(
     resolvePeriodsSource(ownStateBag, fd.periods ?? raw.periods, extraFormData);
   const periods = normalizePeriods(resolvedPeriods);
 
-  // the window actually applied by dashboard date filters (plaque + legend
-  // suffix so series names never pretend to show unfiltered data)
+  // the window actually applied by dashboard date filters (plaque + the
+  // legend names of the narrowed series)
   const appliedRange = extractAppliedDateRange(extraFormData);
   const appliedDateRangeLabel = appliedRange
     ? formatPeriodLabel(appliedRange)
     : undefined;
-  const settingsWithSuffix: ChartSettings = {
-    ...settings,
-    dateFilterSuffix:
-      periodsSource === "date_filter" && appliedDateRangeLabel
-        ? ` (${appliedDateRangeLabel})`
-        : "",
-  };
 
   let statusKind: StatusKind = null;
   let echartOptions: Record<string, unknown> = {};
@@ -285,24 +289,26 @@ export default function transformProps(
       periodsLabel = validated.map(formatPeriodLabel).join(", ");
       const metricLabel = getMetricLabel(metric);
       const axisLength = Math.max(
-        ...validated.map(period => periodBucketCount(period, settingsWithSuffix.grain)),
+        ...validated.map(period => periodBucketCount(period, settings.grain)),
       );
-      const numberFormatter = getNumberFormatter(settingsWithSuffix.numberFormat);
+      const numberFormatter = getNumberFormatter(settings.numberFormat);
       const formatNumber = (value: number | null) =>
         value === null ? "—" : numberFormatter(value);
       const axisLabels = buildAxisLabels(
-        settingsWithSuffix.grain,
+        settings.grain,
         axisLength,
         validated[0],
       );
       const series = buildSeriesSet({
         queriesData,
         validated,
-        grain: settingsWithSuffix.grain,
-        settings: settingsWithSuffix,
+        grain: settings.grain,
+        settings,
         axisLength,
         metricLabel,
         timeColumn,
+        appliedRange,
+        narrowedByDateFilter: periodsSource === "date_filter",
       });
 
       if (!series.some(item => item.hasData)) {
@@ -312,22 +318,22 @@ export default function transformProps(
       echartOptions = buildEchartOptions({
         series,
         axisLabels,
-        grain: settingsWithSuffix.grain,
-        lineType: settingsWithSuffix.lineType,
-        stepPosition: settingsWithSuffix.stepPosition,
-        lineWidth: settingsWithSuffix.lineWidth,
-        markerSize: settingsWithSuffix.markerSize,
-        showValues: settingsWithSuffix.showValues,
-        showExtremes: settingsWithSuffix.showExtremes,
-        area: settingsWithSuffix.area,
-        areaOpacity: settingsWithSuffix.areaOpacity,
-        scale: getScale(settingsWithSuffix.yScale),
-        showLegend: settingsWithSuffix.showLegend,
+        grain: settings.grain,
+        lineType: settings.lineType,
+        stepPosition: settings.stepPosition,
+        lineWidth: settings.lineWidth,
+        markerSize: settings.markerSize,
+        showValues: settings.showValues,
+        showExtremes: settings.showExtremes,
+        area: settings.area,
+        areaOpacity: settings.areaOpacity,
+        scale: getScale(settings.yScale),
+        showLegend: settings.showLegend,
         hideEmptyLegendEntries:
           periodsSource === "filter" || periodsSource === "date_filter",
-        showZoom: settingsWithSuffix.showZoom,
-        gridColor: settingsWithSuffix.chartColors?.grid || undefined,
-        axisColor: settingsWithSuffix.chartColors?.axis || undefined,
+        showZoom: settings.showZoom,
+        gridColor: settings.chartColors?.grid || undefined,
+        axisColor: settings.chartColors?.axis || undefined,
         formatNumber,
       });
     }
@@ -343,7 +349,7 @@ export default function transformProps(
     periodsLabel,
     appliedDateRangeLabel,
     timeColumn,
-    grain: settingsWithSuffix.grain,
+    grain: settings.grain,
     setDataMask: hooks?.setDataMask ?? noOp,
     filterState: filterState || {},
     formData: fd,

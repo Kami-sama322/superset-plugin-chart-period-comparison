@@ -217,9 +217,10 @@ test("a calendar filter labels the legend and the plaque with its window", () =>
   } as never);
   expect(props.periodsSource).toBe("date_filter");
   expect(props.appliedDateRangeLabel).toBe("06.01–07.01.2026");
+  // legend names are the period ∩ applied window (no default-name suffix)
   const series = props.echartOptions.series as { name: string }[];
-  expect(series[0].name).toBe("05.01–09.01.2026 (06.01–07.01.2026)");
-  expect(series[1].name).toBe("02.02–06.02.2026 (06.01–07.01.2026)");
+  expect(series[0].name).toBe("06.01–07.01.2026");
+  expect(series[1].name).toBe("02.02–06.02.2026");
 });
 
 test("the chart's own span tag does not trigger self-deferral", () => {
