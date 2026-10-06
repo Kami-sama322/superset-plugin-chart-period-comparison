@@ -28,6 +28,7 @@ import {
   extractAppliedDateRange,
   MAX_PERIODS,
   parseGrain,
+  parsePeriodMs,
   resolvePeriodsSource,
   stripTaggedDateFilterClauses,
   validatePeriods,
@@ -49,18 +50,21 @@ const ISSUE_TEXT: Record<string, string> = {
 };
 
 /**
- * ONE query over the union span of the periods, for every period source:
- * - the period_ranges filter's structured ranges (span of the ranges);
+ * ONE query for every period source:
+ * - the period_ranges filter's structured ranges;
  * - a dashboard date filter (its clauses arrive in the base filters and
  *   define the window — the chart's configured periods are split
  *   client-side, exactly like the stock table renders its window);
- * - the on-chart pickers / control-panel value (span of the periods).
+ * - the on-chart pickers / control-panel value.
  *
- * The tagged date-filter clauses (the period_ranges filter's OR clause and
- * this chart's own span) are stripped from the formData BEFORE the query is
- * built — they target other charts, would AND-narrow the single query, and
- * the core moves SQL adhoc clauses into `extras.where` before the callback
- * sees the base query, where a base-level strip could not reach them.
+ * The scan window is an OR-group of the periods' own bucket windows in
+ * extras.where — exactly the rows the client draws, never the empty gap
+ * between distant periods. The tagged date-filter clauses (the
+ * period_ranges filter's OR clause and this chart's own span) are stripped
+ * from the formData BEFORE the query is built — they target other charts,
+ * would AND-narrow the single query, and the core moves SQL adhoc clauses
+ * into `extras.where` before the callback sees the base query, where a
+ * base-level strip could not reach them.
  */
 export default function buildQuery(
   formData: PeriodComparisonQueryFormData,
@@ -144,25 +148,40 @@ export default function buildQuery(
   const metricLabel = getMetricLabel(metric);
 
   return buildQueryContext(cleanFormData, {
-    buildQuery: (baseQueryObject: QueryObject) => [
-      buildSpanQuery({
-        baseFilters: (baseQueryObject.filters || []) as never[],
-        baseAdhocFilters: stripTaggedDateFilterClauses(
-          baseQueryObject.adhoc_filters,
-        ),
-        baseExtras: baseQueryObject.extras,
-        periods: validated,
-        timeColumn,
-        xAxisColumn: xAxis,
-        metricLabel,
-        grain,
-        rowLimit: baseQueryObject.row_limit,
-        // when the dashboard filter's window replaces the periods, its
-        // clauses are already in the base filters — adding our span would
-        // duplicate the window; otherwise (config/own periods, or a date
-        // filter with an unparseable window) the chart's own span applies
-        addSpanClause: !(source === "date_filter" && appliedRange),
-      }) as unknown as QueryObject,
-    ],
+    buildQuery: (baseQueryObject: QueryObject) => {
+      // A dashboard date filter may bound the scan through its own clauses
+      // (simple date filters, TEMPORAL_RANGE — both land in the base
+      // filters) or as a bare `time_range` override, which the backend
+      // IGNORES for this chart (the query has no `granularity` — the
+      // x-axis is a BASE_AXIS). In the latter case the applied window
+      // must be added explicitly, or the scan stays unbounded.
+      const hasBaseDateBound = (baseQueryObject.filters || []).some(
+        clause => {
+          const { op, val } = clause as { op?: unknown; val?: unknown };
+          return op === "TEMPORAL_RANGE" || parsePeriodMs(val) !== null;
+        },
+      );
+      return [
+        buildSpanQuery({
+          baseFilters: (baseQueryObject.filters || []) as never[],
+          baseAdhocFilters: stripTaggedDateFilterClauses(
+            baseQueryObject.adhoc_filters,
+          ),
+          baseExtras: baseQueryObject.extras,
+          periods: validated,
+          timeColumn,
+          xAxisColumn: xAxis,
+          metricLabel,
+          grain,
+          rowLimit: baseQueryObject.row_limit,
+          // no filter governs → the periods' own windows; a filter with
+          // clause bounds → they already bind the scan (no duplication);
+          // a filter with only a time_range override (or an unparseable
+          // window) → the periods/windows below define the scan
+          addWindowClause:
+            source !== "date_filter" || !appliedRange || !hasBaseDateBound,
+        }) as unknown as QueryObject,
+      ];
+    },
   });
 }

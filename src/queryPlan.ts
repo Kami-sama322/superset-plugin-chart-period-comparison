@@ -17,13 +17,18 @@
  * under the License.
  */
 
-import { spanFilterValue, type ComparisonGrain } from "./periods";
+import {
+  snapEndExclusiveMs,
+  snapStartMs,
+  toUtcSqlString,
+  type ComparisonGrain,
+} from "./periods";
 
 /**
- * Single-query planning: ONE query over the union span of all periods.
- * The series are split client-side (seriesData.ts) by their own ranges —
- * strictly cheaper than one query per period (one scan instead of N, no
- * redundant AND-ed range pairs in WHERE).
+ * Single-query planning: ONE query whose scan window is the OR-group of
+ * the periods' own bucket windows. The series are split client-side
+ * (seriesData.ts) from that single result — one round trip, and the scan
+ * covers exactly the periods however far apart they are.
  *
  * Dependency-free and unit-testable outside the Superset tree; the
  * Superset-side buildQuery.ts feeds the result into buildQueryContext
@@ -84,7 +89,7 @@ export type QueryPlanInput = {
   /** Base query adhoc filters with tagged date-filter clauses stripped */
   baseAdhocFilters?: unknown[];
   baseExtras?: Record<string, unknown>;
-  /** Validated periods (their union span defines the query window) */
+  /** Validated periods (their windows define the scan ranges) */
   periods: { startMs: number; endMs: number }[];
   timeColumn: string;
   /** Raw x_axis control value (string or adhoc column) */
@@ -93,18 +98,49 @@ export type QueryPlanInput = {
   grain: ComparisonGrain;
   rowLimit?: number;
   /**
-   * Emit the span TEMPORAL_RANGE clause (period own/config/filter sources).
+   * Add the per-period window clause (period own/config/filter sources).
    * False when a dashboard date filter governs: its clauses are already in
-   * the base filters and adding our span would duplicate the window.
+   * the base filters and adding our windows would duplicate the bound.
    */
-  addSpanClause?: boolean;
+  addWindowClause?: boolean;
 };
 
 /**
+ * OR-group of the periods' bucket windows as raw SQL, each half-open
+ * [snapStart, snapEndExclusive) at the query grain — exactly the rows the
+ * client assigns to the series. Scanning the periods' own windows (however
+ * far apart) instead of their union span keeps distant comparisons cheap:
+ * Sep 1–5 vs Oct 6–10 scans 10 days, not the 41-day span between them.
+ * AND-safe: a single range and the OR-group are fully parenthesized.
+ */
+export function periodRangesSql(
+  periods: { startMs: number; endMs: number }[],
+  grain: ComparisonGrain,
+  timeColumn: string,
+): string {
+  if (!Array.isArray(periods) || periods.length === 0) {
+    return "1 = 0";
+  }
+  const ranges = periods.map(period => {
+    const startMs = snapStartMs(period.startMs, grain);
+    const endExclusiveMs = snapEndExclusiveMs(period.endMs, grain);
+    return (
+      `${timeColumn} >= '${toUtcSqlString(startMs)}' ` +
+      `AND ${timeColumn} < '${toUtcSqlString(endExclusiveMs)}'`
+    );
+  });
+  if (ranges.length === 1) {
+    return `(${ranges[0]})`;
+  }
+  return `(${ranges.map(range => `(${range})`).join(" OR ")})`;
+}
+
+/**
  * ONE query over the union span of the periods: base filters (including
- * the dashboard date filters) + a single TEMPORAL_RANGE clause covering
- * the span, grouped by the temporal column at the comparison grain.
- * Client-side seriesData assigns every bucket to its period(s).
+ * the dashboard date filters) + an OR-group of the per-period bucket
+ * windows (extras.where — the backend AND-joins it), grouped by the
+ * temporal column at the comparison grain. Client-side seriesData assigns
+ * every bucket to its period(s).
  */
 export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
   const {
@@ -117,7 +153,7 @@ export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
     metricLabel,
     grain,
     rowLimit,
-    addSpanClause = true,
+    addWindowClause = true,
   } = input;
   const timeGrain = GRAIN_TO_TIME_GRAIN[grain];
   const adhoc = (baseAdhocFilters || []).filter(
@@ -126,6 +162,20 @@ export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
   const cleanBaseFilters = (baseFilters || []).filter(
     item => !isTaggedDateFilterClause(item),
   );
+  const extras: Record<string, unknown> = {
+    ...(baseExtras || {}),
+    time_grain_sqla: timeGrain,
+  };
+  if (addWindowClause) {
+    // the backend AND-joins extras.where with the rendered filters; the
+    // base where arrives pre-sanitized ("(a) AND (b)") from the core
+    const baseWhere =
+      typeof baseExtras?.where === "string" && baseExtras.where.trim() !== ""
+        ? baseExtras.where
+        : undefined;
+    const windowSql = periodRangesSql(periods, grain, timeColumn);
+    extras.where = baseWhere ? `${baseWhere} AND ${windowSql}` : windowSql;
+  }
   return {
     // keep the temporal column in `columns` so buildQueryContext's
     // normalizeTimeColumn converts it into a BASE_AXIS with the grain
@@ -134,19 +184,8 @@ export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
     metrics: [metricLabel],
     is_timeseries: true,
     time_grain_sqla: timeGrain,
-    extras: { ...(baseExtras || {}), time_grain_sqla: timeGrain },
-    filters: [
-      ...cleanBaseFilters,
-      ...(addSpanClause
-        ? [
-            {
-              col: timeColumn,
-              op: "TEMPORAL_RANGE",
-              val: spanFilterValue(periods),
-            },
-          ]
-        : []),
-    ],
+    extras,
+    filters: cleanBaseFilters,
     ...(adhoc.length > 0 ? { adhoc_filters: adhoc } : {}),
     orderby: undefined,
     ...(rowLimit !== undefined ? { row_limit: rowLimit } : {}),

@@ -106,11 +106,16 @@ names the range each line actually shows (the period ∩ the applied
 window), so a line is never labeled with a range it does not contain.
 
 **Single-query architecture**: whatever the period source, the chart runs
-exactly ONE query — over the union span of the periods (or the dashboard
-date filter's window when one governs). The per-period series are split
+exactly ONE query. Its scan window is an OR-group of the periods' own
+bucket windows (`extras.where`) — exactly the rows the chart draws, never
+the empty gap between distant periods (Sep 1–5 vs Oct 6–10 scans 10 days,
+not the 41-day span; 2020 vs 2025 scans the two years). When a dashboard
+date filter governs, its own clauses already bound the scan and no window
+clause is added; a bare `time_range` override (the built-in Time range
+filter) is applied as the window clause instead, since the backend
+ignores `time_range` for this chart. The per-period series are split
 client-side from that single result (the buckets are already grouped at
-the comparison grain), so the WHERE clause never contains redundant
-AND-ed range pairs and the scan cost matches the stock table.
+the comparison grain).
 
 Priority: period_ranges structured ranges → any applied date filter
 (own configured periods) → on-chart pickers (ownState) → control-panel

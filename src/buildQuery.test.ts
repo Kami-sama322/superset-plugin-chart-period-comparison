@@ -36,24 +36,23 @@ function formData(
   } as PeriodComparisonQueryFormData;
 }
 
-test("builds ONE query over the union span of the periods", () => {
+test("builds ONE query whose window is the OR of the period windows", () => {
   const context = buildQuery(formData());
   expect(context.queries).toHaveLength(1);
   const query = context.queries[0];
   expect(query.metrics).toEqual(["revenue"]);
   expect(query.is_timeseries).toBe(true);
   expect(query.time_grain_sqla).toBe("P1D");
-  // base has no extra filters: only the span clause in WHERE
-  expect(query.filters).toEqual([
-    {
-      col: "ds",
-      op: "TEMPORAL_RANGE",
-      val: "2026-01-05 00:00:00 : 2026-02-07 00:00:00",
-    },
-  ]);
+  // base has no extra filters and no span filter — the per-period windows
+  // in extras.where bound the scan to exactly the two 5-day periods
+  expect(query.filters).toEqual([]);
+  expect(query.extras?.where).toBe(
+    "((ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
+      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00'))",
+  );
 });
 
-test("dashboard extra filters are shared and precede the span clause", () => {
+test("dashboard extra filters are shared and precede the window clause", () => {
   const context = buildQuery(
     formData({
       extra_form_data: {
@@ -62,12 +61,10 @@ test("dashboard extra filters are shared and precede the span clause", () => {
     }) as never,
   );
   expect(context.queries).toHaveLength(1);
-  expect(context.queries[0].filters?.[0]).toEqual({
-    col: "region",
-    op: "IN",
-    val: ["EU"],
-  });
-  expect(context.queries[0].filters?.at(-1)?.op).toBe("TEMPORAL_RANGE");
+  expect(context.queries[0].filters).toEqual([
+    { col: "region", op: "IN", val: ["EU"] },
+  ]);
+  expect(context.queries[0].extras?.where).toContain("ds >= '2026-01-05");
 });
 
 test("ownState periods override the control-panel value", () => {
@@ -77,8 +74,8 @@ test("ownState periods override the control-panel value", () => {
     },
   });
   expect(context.queries).toHaveLength(1);
-  expect(context.queries[0].filters?.at(-1)?.val).toBe(
-    "2026-03-02 00:00:00 : 2026-03-07 00:00:00",
+  expect(context.queries[0].extras?.where).toBe(
+    "(ds >= '2026-03-02 00:00:00' AND ds < '2026-03-07 00:00:00')",
   );
 });
 
@@ -97,7 +94,7 @@ test("a date filter with no structured periods yields an always-empty query", ()
   expect(context.queries[0].filters).toEqual([]);
 });
 
-test("periods from extra_form_data.custom_form_data define the span", () => {
+test("periods from extra_form_data.custom_form_data define the windows", () => {
   const context = buildQuery({
     ...formData(),
     extra_form_data: {
@@ -107,9 +104,28 @@ test("periods from extra_form_data.custom_form_data define the span", () => {
     },
   } as never);
   expect(context.queries).toHaveLength(1);
-  expect(context.queries[0].filters?.at(-1)?.val).toBe(
-    "2026-06-01 00:00:00 : 2026-06-06 00:00:00",
+  expect(context.queries[0].extras?.where).toBe(
+    "(events_dt >= '2026-06-01 00:00:00' AND events_dt < '2026-06-06 00:00:00')",
   );
+});
+
+test("a bare time_range override is applied as the window clause", () => {
+  // the built-in Time range filter reaches the chart as extra_form_data
+  // .time_range only — the backend ignores queryObject.time_range without
+  // a granularity column, so the window must be added explicitly
+  const context = buildQuery(
+    formData({
+      extra_form_data: {
+        time_range: "2020-09-01 00:00:00 : 2020-09-06 00:00:00",
+      },
+    }) as never,
+  );
+  const query = context.queries[0];
+  expect(query.filters).toEqual([]);
+  expect(query.extras?.where).toBe(
+    "(ds >= '2020-09-01 00:00:00' AND ds < '2020-09-06 00:00:00')",
+  );
+  expect(JSON.stringify(query)).not.toContain("1 = 0");
 });
 
 test("tagged date-filter clauses (foreign and own) never reach the query", () => {
@@ -166,16 +182,14 @@ test("the chart's own stale span does not duplicate or narrow the span clause", 
   );
   const query = context.queries[0];
   // the span clause reflects the CURRENT picker value...
-  expect(query.filters?.at(-1)).toEqual({
-    col: "ds",
-    op: "TEMPORAL_RANGE",
-    val: "2026-03-02 00:00:00 : 2026-03-07 00:00:00",
-  });
+  expect(query.extras?.where).toBe(
+    "(ds >= '2026-03-02 00:00:00' AND ds < '2026-03-07 00:00:00')",
+  );
   // ...and the stale emitted span is gone entirely (no duplicate window)
   expect(JSON.stringify(query)).not.toContain("2026-01-05 00:00:00");
 });
 
-test("a calendar filter's window replaces the periods and adds no span clause", () => {
+test("a calendar filter's window replaces the periods and adds no window clause", () => {
   const context = buildQuery(
     formData({
       extra_form_data: {
@@ -191,10 +205,12 @@ test("a calendar filter's window replaces the periods and adds no span clause", 
     { col: "events_dt", op: ">=", val: "2026-10-01" },
     { col: "events_dt", op: "<=", val: "2026-10-07" },
   ]);
-  // the filter's clauses already define the window — no span duplication
+  // the filter's clauses already define the window — no duplicated bound
+  // anywhere: no TEMPORAL_RANGE in filters, no window clause in where
   expect(
     query.filters?.some(clause => clause.op === "TEMPORAL_RANGE"),
   ).toBe(false);
+  expect(query.extras?.where ?? "").not.toContain("events_dt >= '2026-10-01");
   // and never the always-empty query when the window is valid
   expect(JSON.stringify(query)).not.toContain("1 = 0");
 });

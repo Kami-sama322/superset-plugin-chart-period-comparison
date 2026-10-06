@@ -16,7 +16,12 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { buildEmptyQuery, buildSpanQuery, GRAIN_TO_TIME_GRAIN } from "./queryPlan";
+import {
+  buildEmptyQuery,
+  buildSpanQuery,
+  GRAIN_TO_TIME_GRAIN,
+  periodRangesSql,
+} from "./queryPlan";
 
 const periods = [
   { startMs: Date.UTC(2026, 0, 5), endMs: Date.UTC(2026, 0, 9, 23, 59, 59, 999) },
@@ -33,21 +38,55 @@ const baseInput = {
   rowLimit: 5000,
 };
 
-test("ONE query over the union span with a single TEMPORAL_RANGE filter", () => {
+test("ONE query whose window is the OR-group of the period windows", () => {
   const queries = [buildSpanQuery(baseInput)];
   expect(queries).toHaveLength(1);
   const query = queries[0];
   expect(query.metrics).toEqual(["SUM(revenue)"]);
   expect(query.columns).toEqual(["ds"]);
   expect(query.is_timeseries).toBe(true);
-  // base filter + the span clause — no per-period pairs in WHERE
-  expect(query.filters).toHaveLength(2);
-  expect(query.filters[0]).toEqual({ col: "region", op: "IN", val: ["EU"] });
-  expect(query.filters[1]).toEqual({
-    col: "ds",
-    op: "TEMPORAL_RANGE",
-    val: "2026-01-05 00:00:00 : 2026-02-07 00:00:00",
-  });
+  // only the base filter stays in `filters` — the period windows live in
+  // extras.where, so the scan never covers the gap between the periods
+  expect(query.filters).toEqual([{ col: "region", op: "IN", val: ["EU"] }]);
+  expect(query.extras.where).toBe(
+    "((ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
+      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00'))",
+  );
+  // distant periods never widen each other's scan (2020 vs 2025 case)
+  const far = periodRangesSql(
+    [
+      { startMs: Date.UTC(2020, 8, 1), endMs: Date.UTC(2020, 8, 5, 23, 59, 59, 999) },
+      { startMs: Date.UTC(2025, 8, 6), endMs: Date.UTC(2025, 8, 10, 23, 59, 59, 999) },
+    ],
+    "day",
+    "ts",
+  );
+  expect(far).toBe(
+    "((ts >= '2020-09-01 00:00:00' AND ts < '2020-09-06 00:00:00') OR " +
+      "(ts >= '2025-09-06 00:00:00' AND ts < '2025-09-11 00:00:00'))",
+  );
+});
+
+test("periodRangesSql: single period, grain snapping, empty fallback", () => {
+  // a single period is one AND-safe parenthesized range
+  expect(
+    periodRangesSql(
+      [{ startMs: Date.UTC(2020, 8, 1), endMs: Date.UTC(2020, 8, 5, 23, 59, 59, 999) }],
+      "day",
+      "ts",
+    ),
+  ).toBe("(ts >= '2020-09-01 00:00:00' AND ts < '2020-09-06 00:00:00')");
+  // hour grain keeps the intra-day bounds; a partial last bucket
+  // (17:30 end) extends to the next hour boundary, like the client split
+  expect(
+    periodRangesSql(
+      [{ startMs: Date.UTC(2026, 0, 5, 12, 30), endMs: Date.UTC(2026, 0, 5, 17, 30) }],
+      "hour",
+      "ts",
+    ),
+  ).toBe("(ts >= '2026-01-05 12:00:00' AND ts < '2026-01-05 18:00:00')");
+  // no periods cannot scan anything
+  expect(periodRangesSql([], "day", "ts")).toBe("1 = 0");
 });
 
 test("the comparison grain maps to a Superset time grain", () => {
@@ -64,15 +103,29 @@ test("grain values cover hour/week/month/quarter/year", () => {
   expect(GRAIN_TO_TIME_GRAIN.year).toBe("P1Y");
 });
 
-test("base filters and extras are shared, row limit is kept", () => {
+test("base filters, where and extras are shared, row limit is kept", () => {
   const query = buildSpanQuery({
     ...baseInput,
-    baseExtras: { time_range: undefined },
+    baseExtras: { time_range: undefined, where: "(region = 'EU')" },
   });
   expect(query.row_limit).toBe(5000);
-  expect(query.extras).toEqual({ time_range: undefined, time_grain_sqla: "P1D" });
+  // the base where is kept AND the period windows are appended
+  expect(query.extras.where).toBe(
+    "(region = 'EU') AND ((ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
+      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00'))",
+  );
   expect(query.orderby).toBeUndefined();
   expect(query.series_columns).toEqual([]);
+});
+
+test("addWindowClause: false keeps the base where untouched (filter governs)", () => {
+  const query = buildSpanQuery({
+    ...baseInput,
+    baseExtras: { where: "(region = 'EU')" },
+    addWindowClause: false,
+  });
+  expect(query.extras.where).toBe("(region = 'EU')");
+  expect(query.filters).toEqual([{ col: "region", op: "IN", val: ["EU"] }]);
 });
 
 test("hour grain maps to PT1H regardless of period length", () => {
