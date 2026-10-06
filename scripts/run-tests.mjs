@@ -50,7 +50,6 @@ const pureModules = [
   "queryPlan.ts",
   "seriesData.ts",
   "crossFilter.ts",
-  "dateFilterSignals.ts",
 ];
 for (const name of pureModules) {
   const file = pathToFileURL(import.meta.dirname + "/../src/" + name).href;

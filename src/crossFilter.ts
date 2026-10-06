@@ -17,8 +17,9 @@
  * under the License.
  */
 
-import { OWN_SPAN_TAG } from "./dateFilterSignals";
+
 import {
+  OWN_SPAN_TAG,
   formatPeriodLabel,
   snapEndExclusiveMs,
   toUtcSqlString,

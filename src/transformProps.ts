@@ -25,16 +25,18 @@ import {
   getNumberFormatter,
 } from "@superset-ui/core";
 import {
+  extractAppliedDateRange,
   formatHourAxisLabel,
   formatPeriodLabel,
   parseGrain,
   periodBucketCount,
   periodBucketStarts,
+  resolvePeriodsSource,
   validatePeriods,
   type ComparisonGrain,
   type PeriodRange,
 } from "./periods";
-import { extractAppliedDateRange, resolvePeriodsSource } from "./dateFilterSignals";
+
 import { buildEchartOptions, seriesSymbolFor } from "./chartOptions";
 import { getScale } from "./scale";
 import { buildSeriesSetFromRows, type Series } from "./seriesData";
