@@ -20,7 +20,6 @@
   },
   "license": "Apache-2.0",
   "author": "Alexander Tsay",
-  "sideEffects": false,
   "main": "src/index.ts",
   "module": "src/index.ts",
   "files": ["src"],
