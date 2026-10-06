@@ -46,11 +46,13 @@ test("ONE query whose window is the OR-group of the period windows", () => {
   expect(query.columns).toEqual(["ds"]);
   expect(query.is_timeseries).toBe(true);
   // only the base filter stays in `filters` — the period windows live in
-  // extras.where, so the scan never covers the gap between the periods
+  // extras.where, so the scan never covers the gap between the periods;
+  // standalone the OR needs no extra outer group (the backend Grouping-
+  // wraps the whole extras.where string itself)
   expect(query.filters).toEqual([{ col: "region", op: "IN", val: ["EU"] }]);
   expect(query.extras.where).toBe(
-    "((ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
-      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00'))",
+    "(ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
+      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00')",
   );
   // distant periods never widen each other's scan (2020 vs 2025 case)
   const far = periodRangesSql(
@@ -62,8 +64,8 @@ test("ONE query whose window is the OR-group of the period windows", () => {
     "ts",
   );
   expect(far).toBe(
-    "((ts >= '2020-09-01 00:00:00' AND ts < '2020-09-06 00:00:00') OR " +
-      "(ts >= '2025-09-06 00:00:00' AND ts < '2025-09-11 00:00:00'))",
+    "(ts >= '2020-09-01 00:00:00' AND ts < '2020-09-06 00:00:00') OR " +
+      "(ts >= '2025-09-06 00:00:00' AND ts < '2025-09-11 00:00:00')",
   );
 });
 
@@ -109,7 +111,8 @@ test("base filters, where and extras are shared, row limit is kept", () => {
     baseExtras: { time_range: undefined, where: "(region = 'EU')" },
   });
   expect(query.row_limit).toBe(5000);
-  // the base where is kept AND the period windows are appended
+  // the base where is kept AND the multi-range OR is grouped to stay
+  // below the ANDs
   expect(query.extras.where).toBe(
     "(region = 'EU') AND ((ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
       "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00'))",

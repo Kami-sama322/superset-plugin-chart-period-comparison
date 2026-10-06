@@ -44,11 +44,12 @@ test("builds ONE query whose window is the OR of the period windows", () => {
   expect(query.is_timeseries).toBe(true);
   expect(query.time_grain_sqla).toBe("P1D");
   // base has no extra filters and no span filter — the per-period windows
-  // in extras.where bound the scan to exactly the two 5-day periods
+  // in extras.where bound the scan to exactly the two 5-day periods; no
+  // outer group around the OR (the backend Grouping-wraps extras.where)
   expect(query.filters).toEqual([]);
   expect(query.extras?.where).toBe(
-    "((ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
-      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00'))",
+    "(ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
+      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00')",
   );
 });
 

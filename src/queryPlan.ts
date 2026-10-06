@@ -106,12 +106,15 @@ export type QueryPlanInput = {
 };
 
 /**
- * OR-group of the periods' bucket windows as raw SQL, each half-open
+ * The periods' bucket windows as raw SQL, each half-open
  * [snapStart, snapEndExclusive) at the query grain — exactly the rows the
  * client assigns to the series. Scanning the periods' own windows (however
  * far apart) instead of their union span keeps distant comparisons cheap:
  * Sep 1–5 vs Oct 6–10 scans 10 days, not the 41-day span between them.
- * AND-safe: a single range and the OR-group are fully parenthesized.
+ *
+ * Returns `(r1) OR (r2) …` with each range parenthesized; the caller wraps
+ * the whole expression when AND-combining it with other WHERE parts (the
+ * backend additionally Grouping-wraps the entire extras.where string).
  */
 export function periodRangesSql(
   periods: { startMs: number; endMs: number }[],
@@ -125,14 +128,11 @@ export function periodRangesSql(
     const startMs = snapStartMs(period.startMs, grain);
     const endExclusiveMs = snapEndExclusiveMs(period.endMs, grain);
     return (
-      `${timeColumn} >= '${toUtcSqlString(startMs)}' ` +
-      `AND ${timeColumn} < '${toUtcSqlString(endExclusiveMs)}'`
+      `(${timeColumn} >= '${toUtcSqlString(startMs)}' ` +
+      `AND ${timeColumn} < '${toUtcSqlString(endExclusiveMs)}')`
     );
   });
-  if (ranges.length === 1) {
-    return `(${ranges[0]})`;
-  }
-  return `(${ranges.map(range => `(${range})`).join(" OR ")})`;
+  return ranges.join(" OR ");
 }
 
 /**
@@ -167,14 +167,20 @@ export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
     time_grain_sqla: timeGrain,
   };
   if (addWindowClause) {
-    // the backend AND-joins extras.where with the rendered filters; the
-    // base where arrives pre-sanitized ("(a) AND (b)") from the core
+    // the backend AND-joins extras.where with the rendered filters and
+    // Grouping-wraps the whole string; the base where arrives
+    // pre-sanitized ("(a) AND (b)") from the core. Standalone, the
+    // backend's grouping is the only wrapper the OR needs; joined with
+    // the base where, a multi-range OR must be grouped to stay below
+    // the ANDs (a single range is already parenthesized)
     const baseWhere =
       typeof baseExtras?.where === "string" && baseExtras.where.trim() !== ""
         ? baseExtras.where
         : undefined;
     const windowSql = periodRangesSql(periods, grain, timeColumn);
-    extras.where = baseWhere ? `${baseWhere} AND ${windowSql}` : windowSql;
+    extras.where = !baseWhere
+      ? windowSql
+      : `${baseWhere} AND ${periods.length > 1 ? `(${windowSql})` : windowSql}`;
   }
   return {
     // keep the temporal column in `columns` so buildQueryContext's
