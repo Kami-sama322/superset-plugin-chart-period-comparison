@@ -30,6 +30,23 @@ import { spanFilterValue, type ComparisonGrain } from "./periods";
  * (cast to QueryObject).
  */
 
+/** Tagged date-filter clauses (period_ranges' OR clause, the chart's own
+ * span) target OTHER charts and must never AND-narrow this chart's query.
+ * Superset 6 merges adhoc filters into `filters`, so both lists are
+ * stripped. */
+const DATE_FILTER_TAGS = [
+  "/* period_ranges:v1 */",
+  "/* period_comparison:own:v1 */",
+];
+
+function isTaggedDateFilterClause(item: unknown): boolean {
+  const sql = (item as { sqlExpression?: unknown })?.sqlExpression;
+  return (
+    typeof sql === "string" &&
+    DATE_FILTER_TAGS.some(tag => sql.startsWith(tag))
+  );
+}
+
 export const GRAIN_TO_TIME_GRAIN: Record<ComparisonGrain, string> = {
   hour: "PT1H",
   day: "P1D",
@@ -103,7 +120,12 @@ export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
     addSpanClause = true,
   } = input;
   const timeGrain = GRAIN_TO_TIME_GRAIN[grain];
-  const adhoc = baseAdhocFilters || [];
+  const adhoc = (baseAdhocFilters || []).filter(
+    item => !isTaggedDateFilterClause(item),
+  );
+  const cleanBaseFilters = (baseFilters || []).filter(
+    item => !isTaggedDateFilterClause(item),
+  );
   return {
     // keep the temporal column in `columns` so buildQueryContext's
     // normalizeTimeColumn converts it into a BASE_AXIS with the grain
@@ -114,7 +136,7 @@ export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
     time_grain_sqla: timeGrain,
     extras: { ...(baseExtras || {}), time_grain_sqla: timeGrain },
     filters: [
-      ...(baseFilters || []),
+      ...cleanBaseFilters,
       ...(addSpanClause
         ? [
             {

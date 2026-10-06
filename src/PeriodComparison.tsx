@@ -154,11 +154,13 @@ export default function PeriodComparison(props: PeriodComparisonTransformedProps
       ) : null}
       {statusKind ? (
         <Status role="status">
-          {statusKind === "no_periods" && periodsSource === "filter"
-            ? t(
-                "Periods are controlled by a date filter — select ranges in the filter",
-              )
-            : t(STATUS_MESSAGES[statusKind])}
+          {statusKind === "no_data" && periodsLabel
+            ? `${t("No data for the selected periods")}: ${periodsLabel}`
+            : statusKind === "no_periods" && periodsSource === "filter"
+              ? t(
+                  "Periods are controlled by a date filter — select ranges in the filter",
+                )
+              : t(STATUS_MESSAGES[statusKind])}
         </Status>
       ) : (
         <ChartBox>
