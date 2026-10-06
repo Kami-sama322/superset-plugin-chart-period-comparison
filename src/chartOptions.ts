@@ -194,10 +194,13 @@ export function buildEchartOptions(
     formatNumber,
   } = input;
 
-  const seriesCount = series.length;
   const legendNames = hideEmptyLegendEntries
     ? series.filter(item => item.hasData).map(item => item.name)
     : series.map(item => item.name);
+  // the legend stays whenever it has content: under a dashboard date
+  // filter (or after periods are removed down to one) the single entry
+  // names the range the line actually shows
+  const hasLegendContent = legendNames.length > 0;
 
   const lineSeries = series.map((item, index) => {
     const color = item.color || DEFAULT_PALETTE[index % DEFAULT_PALETTE.length];
@@ -286,7 +289,7 @@ export function buildEchartOptions(
       (item, index) => item.color || DEFAULT_PALETTE[index % DEFAULT_PALETTE.length],
     ),
     legend: {
-      show: showLegend && seriesCount > 1,
+      show: showLegend && hasLegendContent,
       type: "scroll",
       top: 0,
       left: "center",
@@ -294,7 +297,7 @@ export function buildEchartOptions(
       ...(axisColor ? { textStyle: { color: axisColor } } : {}),
     },
     grid: {
-      top: showLegend && seriesCount > 1 ? 48 : 24,
+      top: showLegend && hasLegendContent ? 48 : 24,
       left: 8,
       right: 16,
       bottom: showZoom ? 56 : 8,

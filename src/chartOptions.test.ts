@@ -189,12 +189,31 @@ test("the tooltip lists every series with original values and real dates", () =>
   expect(gapHtml).toContain("6");
 });
 
-test("legend hides for a single series and zoom is optional", () => {
-  expect((buildEchartOptions(baseInput).legend as Record<string, unknown>).show).toBe(false);
+test("legend stays for a single series; zoom is optional", () => {
+  // a single line keeps its legend: its name names the range it shows
+  // (dashboard date filter, or periods removed down to one)
+  const single = buildEchartOptions(baseInput);
+  expect((single.legend as Record<string, unknown>).show).toBe(true);
+  expect((single.legend as Record<string, unknown>).data).toEqual(["s"]);
   expect(
     (buildEchartOptions({ ...baseInput, series: [series([1]), series([2])] })
       .legend as Record<string, unknown>).show,
   ).toBe(true);
+
+  // hideEmptyLegendEntries drops series without data from the legend
+  const narrowed = buildEchartOptions({
+    ...baseInput,
+    series: [series([1]), series([null])],
+    hideEmptyLegendEntries: true,
+  });
+  expect((narrowed.legend as Record<string, unknown>).data).toEqual(["s"]);
+  // and hides the legend entirely when nothing has data
+  const allEmpty = buildEchartOptions({
+    ...baseInput,
+    series: [series([null])],
+    hideEmptyLegendEntries: true,
+  });
+  expect((allEmpty.legend as Record<string, unknown>).show).toBe(false);
 
   const zoomed = buildEchartOptions({ ...baseInput, showZoom: true });
   expect(Array.isArray(zoomed.dataZoom)).toBe(true);
