@@ -24,14 +24,11 @@ import {
   QueryFormData,
   QueryObject,
 } from "@superset-ui/core";
+import { MAX_PERIODS, parseGrain, validatePeriods } from "./periods";
 import {
-  extractFilterPeriods,
-  MAX_PERIODS,
-  parseGrain,
   resolvePeriodsSource,
-  stripTaggedPeriodRangeFilters,
-  validatePeriods,
-} from "./periods";
+  stripTaggedDateFilterClauses,
+} from "./dateFilterSignals";
 import { buildPeriodQueries } from "./queryPlan";
 import type { PeriodComparisonQueryFormData } from "./types";
 type BuildQueryOptions = {
@@ -119,7 +116,7 @@ export default function buildQuery(
         // filter's own column) — this chart re-applies the ranges to its
         // own time column via its per-period clauses
         baseFilters: (baseQueryObject.filters || []) as never[],
-        baseAdhocFilters: stripTaggedPeriodRangeFilters(
+        baseAdhocFilters: stripTaggedDateFilterClauses(
           baseQueryObject.adhoc_filters,
         ),
         baseExtras: baseQueryObject.extras,

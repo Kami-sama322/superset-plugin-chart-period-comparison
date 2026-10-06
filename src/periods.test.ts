@@ -20,26 +20,19 @@ import {
   bucketCount,
   bucketIndexForTs,
   buildBucketStarts,
-  extractAppliedDateRange,
-  extractFilterPeriods,
   formatBucketDate,
   formatHourAxisLabel,
   formatPeriodLabel,
   HOUR_MS,
-  isDateFilterPresent,
-  OWN_SPAN_TAG,
   parseGrain,
   parsePeriodEndMs,
   parsePeriodMs,
   periodBucketCount,
-  resolvePeriodsSource,
   snapEndExclusiveMs,
   snapStartMs,
   spanFilterValue,
-  stripTaggedPeriodRangeFilters,
   validatePeriods,
   DAY_MS,
-  PERIOD_RANGES_TAG,
 } from "./periods";
 
 const utc = (
@@ -104,11 +97,7 @@ test("exclusive end snaps up to the next boundary", () => {
 });
 
 test("day and hour buckets are dense arithmetic steps", () => {
-  const buckets = buildBucketStarts(
-    utc(2026, 1, 5),
-    utc(2026, 1, 10),
-    "day",
-  );
+  const buckets = buildBucketStarts(utc(2026, 1, 5), utc(2026, 1, 10), "day");
   expect(buckets).toHaveLength(5);
   expect(buckets[0]).toBe(utc(2026, 1, 5));
   expect(buckets[4]).toBe(utc(2026, 1, 9));
@@ -123,17 +112,30 @@ test("day and hour buckets are dense arithmetic steps", () => {
 });
 
 test("week and month buckets step by calendar boundaries", () => {
-  // Mon 05.01 → Sun 11.01 (exclusive end Mon 12.01): one week bucket
   expect(bucketCount(utc(2026, 1, 5), utc(2026, 1, 12), "week")).toBe(1);
-  // Mon 05.01 → Sun 18.01: two week buckets
   expect(bucketCount(utc(2026, 1, 5), utc(2026, 1, 19), "week")).toBe(2);
 
   // weeks in month: both January and February 2026 hold 4 Monday-started
   // weeks inside the 05.01–01.02 / 02.02–01.03 windows
-  expect(periodBucketCount({ startMs: utc(2026, 1, 5), endMs: utc(2026, 2, 1, 23, 59, 59) }, "week")).toBe(4);
-  expect(periodBucketCount({ startMs: utc(2026, 2, 2), endMs: utc(2026, 3, 1, 23, 59, 59) }, "week")).toBe(4);
+  expect(
+    periodBucketCount(
+      { startMs: utc(2026, 1, 5), endMs: utc(2026, 2, 1, 23, 59, 59) },
+      "week",
+    ),
+  ).toBe(4);
+  expect(
+    periodBucketCount(
+      { startMs: utc(2026, 2, 2), endMs: utc(2026, 3, 1, 23, 59, 59) },
+      "week",
+    ),
+  ).toBe(4);
   // a five-week window yields five buckets (corner case: weeks per month)
-  expect(periodBucketCount({ startMs: utc(2026, 6, 1), endMs: utc(2026, 7, 5, 23, 59, 59) }, "week")).toBe(5);
+  expect(
+    periodBucketCount(
+      { startMs: utc(2026, 6, 1), endMs: utc(2026, 7, 5, 23, 59, 59) },
+      "week",
+    ),
+  ).toBe(5);
 
   expect(bucketCount(utc(2026, 1, 1), utc(2026, 4, 1), "month")).toBe(3);
   expect(bucketCount(utc(2026, 1, 1), utc(2026, 1, 1), "month")).toBe(0);
@@ -142,7 +144,10 @@ test("week and month buckets step by calendar boundaries", () => {
 });
 
 test("a full year compared by weeks produces 53 relative buckets", () => {
-  const period = { startMs: utc(2026, 1, 1), endMs: utc(2026, 12, 31, 23, 59, 59) };
+  const period = {
+    startMs: utc(2026, 1, 1),
+    endMs: utc(2026, 12, 31, 23, 59, 59),
+  };
   expect(periodBucketCount(period, "week")).toBe(53);
   expect(periodBucketCount(period, "month")).toBe(12);
   expect(periodBucketCount(period, "quarter")).toBe(4);
@@ -154,15 +159,15 @@ test("bucketIndexForTs maps timestamps to relative positions", () => {
   expect(bucketIndexForTs(utc(2026, 1, 7), start, "day", 5)).toBe(2);
   expect(bucketIndexForTs(utc(2026, 1, 4), start, "day", 5)).toBe(-1);
   expect(bucketIndexForTs(utc(2026, 1, 10), start, "day", 5)).toBe(-1);
-  expect(
-    bucketIndexForTs(utc(2026, 3, 1), utc(2026, 1, 1), "month", 12),
-  ).toBe(2);
-  expect(
-    bucketIndexForTs(utc(2026, 2, 1), utc(2026, 1, 1), "quarter", 4),
-  ).toBe(0);
-  expect(
-    bucketIndexForTs(utc(2026, 4, 1), utc(2026, 1, 1), "quarter", 4),
-  ).toBe(1);
+  expect(bucketIndexForTs(utc(2026, 3, 1), utc(2026, 1, 1), "month", 12)).toBe(
+    2,
+  );
+  expect(bucketIndexForTs(utc(2026, 2, 1), utc(2026, 1, 1), "quarter", 4)).toBe(
+    0,
+  );
+  expect(bucketIndexForTs(utc(2026, 4, 1), utc(2026, 1, 1), "quarter", 4)).toBe(
+    1,
+  );
 });
 
 test("validatePeriods accepts equal-length periods", () => {
@@ -213,7 +218,9 @@ test("validatePeriods truncates above the limit and warns on overlap", () => {
     end: `2026-01-${String(week).padStart(2, "0")}`,
   }));
   const truncated = validatePeriods(many);
-  expect(truncated.warnings).toEqual([{ type: "truncated", kept: 5, dropped: 2 }]);
+  expect(truncated.warnings).toEqual([
+    { type: "truncated", kept: 5, dropped: 2 },
+  ]);
   expect(truncated.periods).toHaveLength(5);
 
   const overlapped = validatePeriods([
@@ -230,214 +237,18 @@ test("validatePeriods truncates above the limit and warns on overlap", () => {
   expect(zeroLength.errors).toEqual([{ type: "end_before_start", index: 0 }]);
 });
 
-test("resolvePeriodsSource: any date filter beats ownState beats config", () => {
-  const form = [{ start: "2026-01-01", end: "2026-01-02" }];
-  const structured = [{ col: "ds", start: "2026-02-01", end: "2026-02-03" }];
-  expect(resolvePeriodsSource(undefined, form)).toEqual({
-    periods: form,
-    source: "config",
-  });
-  expect(resolvePeriodsSource({}, form)).toEqual({
-    periods: form,
-    source: "config",
-  });
-  expect(resolvePeriodsSource({ periods: [] }, form)).toEqual({
-    periods: [],
-    source: "own",
-  });
-  expect(resolvePeriodsSource({ periods: form }, undefined)).toEqual({
-    periods: form,
-    source: "own",
-  });
-  // the period_ranges filter with applied ranges (col is dropped — the
-  // chart applies the ranges to its own time column)
-  expect(
-    resolvePeriodsSource({ periods: form }, undefined, {
-      custom_form_data: structured,
-    }),
-  ).toEqual({
-    periods: [{ start: "2026-02-01", end: "2026-02-03" }],
-    source: "filter",
-  });
-  // the period_ranges filter present but empty — the chart keeps its own
-  // configured periods (they are simply not overridden), pickers hidden
-  expect(
-    resolvePeriodsSource({ periods: form }, form, {
-      custom_form_data: [{ col: "ds" }],
-    }),
-  ).toEqual({ periods: form, source: "date_filter" });
-  // another date filter (TEMPORAL_RANGE from calendar/built-in/charts):
-  // the chart keeps its own configured periods
-  expect(
-    resolvePeriodsSource({ periods: form }, form, {
-      filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
-    }),
-  ).toEqual({ periods: form, source: "date_filter" });
-  // a time_range override (built-in Time range filter)
-  expect(
-    resolvePeriodsSource({ periods: form }, form, {
-      time_range: "2026-01-01 : 2026-02-01",
-    }),
-  ).toEqual({ periods: form, source: "date_filter" });
-  // a simple clause whose value parses as a date (calendar filter on any
-  // column)
-  expect(
-    resolvePeriodsSource({ periods: form }, form, {
-      filters: [{ col: "ds", op: ">=", val: "2026-01-01" }],
-    }),
-  ).toEqual({ periods: form, source: "date_filter" });
-  // the same clause on a DIFFERENT column is still a date filter signal
-  expect(
-    resolvePeriodsSource({ periods: form }, form, {
-      filters: [{ col: "other_col", op: ">=", val: "2026-01-01" }],
-    }),
-  ).toEqual({ periods: form, source: "date_filter" });
-  // a non-date value is not a date filter signal
-  expect(
-    resolvePeriodsSource({ periods: form }, form, {
-      filters: [{ col: "region", op: "==", val: "EU" }],
-    }),
-  ).toEqual({ periods: form, source: "own" });
-  // the chart's own span tag is NOT a signal (no self-deferral)
-  expect(
-    resolvePeriodsSource({ periods: form }, form, {
-      adhoc_filters: [
-        {
-          clause: "WHERE",
-          expressionType: "SQL",
-          sqlExpression: `${OWN_SPAN_TAG} (ds >= '2026-01-05')`,
-        },
-      ],
-    }),
-  ).toEqual({ periods: form, source: "own" });
-});
-
-test("extractFilterPeriods reads custom_form_data entries", () => {
-  expect(extractFilterPeriods(undefined)).toEqual([]);
-  expect(extractFilterPeriods({})).toEqual([]);
-  expect(
-    extractFilterPeriods({
-      filters: [],
-      custom_form_data: [
-        { col: "ds", start: "2026-01-05T00:00:00.000Z", end: "2026-01-09T23:59:59.999Z" },
-        { col: "ds" },
-        "garbage",
-      ],
-    }),
-  ).toEqual([
-    { start: "2026-01-05T00:00:00.000Z", end: "2026-01-09T23:59:59.999Z" },
-  ]);
-});
-
-test("extractAppliedDateRange reads the window applied by any date filter", () => {
-  // calendar-style >=/<= pair (inclusive upper bound)
-  expect(
-    extractAppliedDateRange({
-      filters: [
-        { col: "ds", op: ">=", val: "2026-01-06" },
-        { col: "ds", op: "<=", val: "2026-01-07" },
-      ],
-    }),
-  ).toEqual({ startMs: Date.UTC(2026, 0, 6), endMs: Date.UTC(2026, 0, 8) });
-  // built-in time range override
-  expect(
-    extractAppliedDateRange({
-      time_range: "2026-02-01 00:00:00 : 2026-02-10 00:00:00",
-    }),
-  ).toEqual({ startMs: Date.UTC(2026, 1, 1), endMs: Date.UTC(2026, 1, 10) });
-  // TEMPORAL_RANGE clause
-  expect(
-    extractAppliedDateRange({
-      filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "2026-03-01 : 2026-03-05" }],
-    }),
-  ).toEqual({ startMs: Date.UTC(2026, 2, 1), endMs: Date.UTC(2026, 2, 5) });
-  // non-date values and unparseable ranges are ignored
-  expect(
-    extractAppliedDateRange({ filters: [{ col: "region", op: "==", val: "EU" }] }),
-  ).toBeNull();
-  expect(extractAppliedDateRange({ time_range: "Last week" })).toBeNull();
-  // an upper bound alone is not a range
-  expect(
-    extractAppliedDateRange({
-      filters: [{ col: "ds", op: "<=", val: "2026-01-07" }],
-    }),
-  ).toBeNull();
-});
-
-test("isDateFilterPresent detects every date-filter shape", () => {
-  expect(isDateFilterPresent(undefined)).toBe(false);
-  expect(isDateFilterPresent({})).toBe(false);
-  expect(isDateFilterPresent({ custom_form_data: [{ col: "ds" }] })).toBe(true);
-  expect(
-    isDateFilterPresent({ filters: [{ col: "region", op: "==", val: "EU" }] }),
-  ).toBe(false);
-  expect(
-    isDateFilterPresent({
-      filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
-    }),
-  ).toBe(true);
-  // any column — the value parsing as a date is what matters
-  expect(
-    isDateFilterPresent({
-      filters: [{ col: "other", op: ">=", val: "2026-01-01" }],
-    }),
-  ).toBe(true);
-  expect(
-    isDateFilterPresent({
-      adhoc_filters: [{ sqlExpression: `${PERIOD_RANGES_TAG} (ds >= 'a')` }],
-    }),
-  ).toBe(true);
-  // the chart's own span tag is not a foreign date filter
-  expect(
-    isDateFilterPresent({
-      adhoc_filters: [{ sqlExpression: `${OWN_SPAN_TAG} (ds >= 'a')` }],
-    }),
-  ).toBe(false);
-  expect(isDateFilterPresent({ time_range: "a : b" })).toBe(true);
-  expect(isDateFilterPresent({ extras: { time_range: "a : b" } })).toBe(true);
-});
-
-test("stripTaggedPeriodRangeFilters removes tagged clauses (foreign and own)", () => {
-  const tagged = {
-    clause: "WHERE",
-    expressionType: "SQL",
-    sqlExpression: `${PERIOD_RANGES_TAG} (ds >= 'a')`,
-  };
-  const ownSpan = {
-    clause: "WHERE",
-    expressionType: "SQL",
-    sqlExpression: `${OWN_SPAN_TAG} (ds >= 'a')`,
-  };
-  const regular = {
-    clause: "WHERE",
-    expressionType: "SIMPLE",
-    operator: "==",
-    subject: "region",
-    comparator: "EU",
-  };
-  const otherSql = {
-    clause: "WHERE",
-    expressionType: "SQL",
-    sqlExpression: "region IN ('EU')",
-  };
-  expect(stripTaggedPeriodRangeFilters(undefined)).toEqual([]);
-  expect(
-    stripTaggedPeriodRangeFilters([tagged, ownSpan, regular, otherSql]),
-  ).toEqual([regular, otherSql]);
-});
-
-test("parseGrain falls back to day on unknown values", () => {
-  expect(parseGrain("week")).toBe("week");
-  expect(parseGrain("decade")).toBe("day");
-  expect(parseGrain(undefined)).toBe("day");
-});
-
 test("formatPeriodLabel renders compact ranges", () => {
   expect(
-    formatPeriodLabel({ startMs: utc(2026, 1, 5), endMs: utc(2026, 1, 9, 23, 59, 59) }),
+    formatPeriodLabel({
+      startMs: utc(2026, 1, 5),
+      endMs: utc(2026, 1, 9, 23, 59, 59),
+    }),
   ).toBe("05.01–09.01.2026");
   expect(
-    formatPeriodLabel({ startMs: utc(2025, 12, 31), endMs: utc(2026, 1, 4, 23, 59, 59) }),
+    formatPeriodLabel({
+      startMs: utc(2025, 12, 31),
+      endMs: utc(2026, 1, 4, 23, 59, 59),
+    }),
   ).toBe("31.12.2025–04.01.2026");
 });
 
@@ -468,4 +279,10 @@ test("hour axis labels show the clock time with a date at midnight", () => {
 
 test("hour constant is one hour in ms", () => {
   expect(HOUR_MS).toBe(3_600_000);
+});
+
+test("parseGrain falls back to day on unknown values", () => {
+  expect(parseGrain("week")).toBe("week");
+  expect(parseGrain("decade")).toBe("day");
+  expect(parseGrain(undefined)).toBe("day");
 });

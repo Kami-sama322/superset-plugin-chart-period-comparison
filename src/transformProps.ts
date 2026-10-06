@@ -25,17 +25,16 @@ import {
   getNumberFormatter,
 } from "@superset-ui/core";
 import {
-  extractAppliedDateRange,
   formatHourAxisLabel,
   formatPeriodLabel,
   parseGrain,
   periodBucketCount,
   periodBucketStarts,
-  resolvePeriodsSource,
   validatePeriods,
   type ComparisonGrain,
   type PeriodRange,
 } from "./periods";
+import { extractAppliedDateRange, resolvePeriodsSource } from "./dateFilterSignals";
 import { buildEchartOptions, seriesSymbolFor } from "./chartOptions";
 import { getScale } from "./scale";
 import { buildSeries, type Series } from "./seriesData";
@@ -48,7 +47,7 @@ import {
   type StatusKind,
 } from "./types";
 
-export const GRAIN_LABEL: Record<ComparisonGrain, string> = {
+const GRAIN_LABEL: Record<ComparisonGrain, string> = {
   hour: "Hour",
   day: "Day",
   week: "Week",
@@ -56,29 +55,6 @@ export const GRAIN_LABEL: Record<ComparisonGrain, string> = {
   quarter: "Quarter",
   year: "Year",
 };
-
-/**
- * Shared relative axis labels. For the hour grain the labels are the real
- * clock times of the base (first) period's buckets — "12:00" IS 12:00, and
- * a midnight bucket carries its date. Other grains keep the ordinal
- * ("Day 1..N"), which is the whole point of the relative comparison.
- */
-function buildAxisLabels(
-  grain: ComparisonGrain,
-  axisLength: number,
-  basePeriod: { startMs: number; endMs: number },
-): string[] {
-  const baseBuckets = periodBucketStarts(basePeriod, grain);
-  return Array.from({ length: axisLength }, (_, index) => {
-    if (grain === "hour") {
-      const bucket = index < baseBuckets.length ? baseBuckets[index] : null;
-      if (bucket !== null) {
-        return formatHourAxisLabel(bucket);
-      }
-    }
-    return t(`${GRAIN_LABEL[grain]} ${index + 1}`);
-  });
-}
 
 const noOp = () => {};
 
@@ -121,6 +97,47 @@ function pickNumber(
   return max === undefined ? clamped : Math.min(max, clamped);
 }
 
+type ChartSettings = ReturnType<typeof resolveSettings> & {
+  /** Legend/plaque suffix of the applied dashboard date-filter window */
+  dateFilterSuffix?: string;
+};
+
+/** Dual-casing (camel/snake) reads of every style/behavior control */
+function resolveSettings(
+  fd: PeriodComparisonQueryFormData,
+  raw: PeriodComparisonQueryFormData,
+): ChartSettings {
+  return {
+    grain: parseGrain(
+      pick(fd, "comparisonGrain", "comparison_grain", undefined),
+    ),
+    lineType: pick(fd, "lineType", "line_type", "polyline"),
+    stepPosition: pick(fd, "stepPosition", "step_position", "start"),
+    lineWidth: pickNumber(fd, "lineWidth", "line_width", 2, 0.5, 6),
+    markerSize: pickNumber(fd, "markerSize", "marker_size", 6, 0, 20),
+    showValues: pick(fd, "showValues", "show_values", false),
+    showExtremes: pick(fd, "showExtremes", "show_extremes", false),
+    area: pick(fd, "area", "area", false),
+    areaOpacity: pickNumber(fd, "areaOpacity", "area_opacity", 0.3, 0, 1),
+    yScale: pick(fd, "yScale", "y_scale", "linear"),
+    showLegend: pick(fd, "showLegend", "show_legend", true),
+    showZoom: pick(fd, "showZoom", "show_zoom", false),
+    numberFormat: pick(fd, "numberFormat", "number_format", "SMART_NUMBER"),
+    seriesStyles: pick<SeriesStyles | null>(
+      fd,
+      "seriesStyles",
+      "series_styles",
+      null,
+    ),
+    chartColors: pick<ChartColors | null>(
+      fd,
+      "chartColors",
+      "chart_colors",
+      null,
+    ),
+  };
+}
+
 function normalizePeriods(value: unknown): PeriodRange[] {
   if (!Array.isArray(value)) {
     return [];
@@ -133,6 +150,72 @@ function normalizePeriods(value: unknown): PeriodRange[] {
       start: typeof source.start === "string" ? source.start : "",
       end: typeof source.end === "string" ? source.end : "",
     };
+  });
+}
+
+/**
+ * Shared relative axis labels. For the hour grain the labels are the real
+ * clock times of the base (first) period's buckets — "12:00" IS 12:00, and
+ * a midnight bucket carries its date. Other grains keep the ordinal
+ * ("Day 1..N"), which is the whole point of the relative comparison.
+ */
+function buildAxisLabels(
+  grain: ComparisonGrain,
+  axisLength: number,
+  basePeriod: { startMs: number; endMs: number },
+): string[] {
+  const baseBuckets = periodBucketStarts(basePeriod, grain);
+  return Array.from({ length: axisLength }, (_, index) => {
+    if (grain === "hour") {
+      const bucket = index < baseBuckets.length ? baseBuckets[index] : null;
+      if (bucket !== null) {
+        return formatHourAxisLabel(bucket);
+      }
+    }
+    return t(`${GRAIN_LABEL[grain]} ${index + 1}`);
+  });
+}
+
+type SeriesSetArgs = {
+  queriesData: ChartProps["queriesData"];
+  validated: ReturnType<typeof validatePeriods>["periods"];
+  grain: ComparisonGrain;
+  settings: ChartSettings;
+  axisLength: number;
+  metricLabel: string;
+  timeColumn: string;
+};
+
+/** One aligned Series per validated period, styled by the per-line styles */
+function buildSeriesSet({
+  queriesData,
+  validated,
+  grain,
+  settings,
+  axisLength,
+  metricLabel,
+  timeColumn,
+}: SeriesSetArgs): Series[] {
+  const seriesCount = validated.length;
+  const scale = getScale(settings.yScale);
+  const styles = settings.seriesStyles || {};
+  return validated.map((period, index) => {
+    const style = styles[String(index)];
+    return buildSeries({
+      rows: (queriesData?.[index]?.data as Record<string, unknown>[]) || [],
+      period,
+      grain,
+      metricLabel,
+      timeColumnLabel: timeColumn,
+      axisLength,
+      scale,
+      name:
+        style?.label ||
+        `${formatPeriodLabel(period)}${settings.dateFilterSuffix}`,
+      color: style?.color || undefined,
+      symbol: seriesSymbolFor(index, seriesCount, style),
+      showSymbol: style?.markerEnabled !== false,
+    });
   });
 }
 
@@ -155,48 +238,7 @@ export default function transformProps(
     ...(formData as PeriodComparisonQueryFormData),
   };
   const raw = (rawFormData || {}) as PeriodComparisonQueryFormData;
-
-  // ChartProps.formData is camelCased (comparisonGrain) while rawFormData
-  // is snake_case (comparison_grain) — pick() reads both casings
-  const grain = parseGrain(
-    pick<string | undefined>(
-      fd,
-      "comparisonGrain",
-      "comparison_grain",
-      undefined,
-    ),
-  );
-  const lineType = pick(fd, "lineType", "line_type", "polyline");
-  const stepPosition = pick(fd, "stepPosition", "step_position", "start");
-  const lineWidth = pickNumber(fd, "lineWidth", "line_width", 2, 0.5, 6);
-  const markerSize = pickNumber(fd, "markerSize", "marker_size", 6, 0, 20);
-  const showValues = pick(fd, "showValues", "show_values", false);
-  const showExtremes = pick(fd, "showExtremes", "show_extremes", false);
-  const area = pick(fd, "area", "area", false);
-  const areaOpacity = pickNumber(
-    fd,
-    "areaOpacity",
-    "area_opacity",
-    0.3,
-    0,
-    1,
-  );
-  const yScale = pick(fd, "yScale", "y_scale", "linear");
-  const showLegend = pick(fd, "showLegend", "show_legend", true);
-  const showZoom = pick(fd, "showZoom", "show_zoom", false);
-  const numberFormat = pick(fd, "numberFormat", "number_format", "SMART_NUMBER");
-  const seriesStyles = pick<SeriesStyles | null>(
-    fd,
-    "seriesStyles",
-    "series_styles",
-    null,
-  );
-  const chartColors = pick<ChartColors | null>(
-    fd,
-    "chartColors",
-    "chart_colors",
-    null,
-  );
+  const settings = resolveSettings(fd, raw);
 
   // On the dashboard ANY date/time filter reaching the chart changes the
   // period source (see resolvePeriodsSource). Same source as buildQuery.
@@ -213,10 +255,13 @@ export default function transformProps(
   const appliedDateRangeLabel = appliedRange
     ? formatPeriodLabel(appliedRange)
     : undefined;
-  const dateFilterSuffix =
-    periodsSource === "date_filter" && appliedDateRangeLabel
-      ? ` (${appliedDateRangeLabel})`
-      : "";
+  const settingsWithSuffix: ChartSettings = {
+    ...settings,
+    dateFilterSuffix:
+      periodsSource === "date_filter" && appliedDateRangeLabel
+        ? ` (${appliedDateRangeLabel})`
+        : "",
+  };
 
   let statusKind: StatusKind = null;
   let echartOptions: Record<string, unknown> = {};
@@ -224,6 +269,7 @@ export default function transformProps(
 
   const metric = fd.metric ?? raw.metric;
   const xAxis = ensureIsArray(fd.x_axis ?? raw.x_axis)[0];
+  const timeColumn = getColumnLabel(xAxis) || "";
 
   if (!metric) {
     statusKind = "no_metric";
@@ -231,46 +277,32 @@ export default function transformProps(
     statusKind = "no_time_column";
   } else if (periods.length === 0) {
     statusKind = "no_periods";
+  } else {
+    const { periods: validated } = validatePeriods(periods);
+    if (validated.length === 0) {
+      statusKind = "no_periods";
     } else {
-      const { periods: validated } = validatePeriods(periods);
-      if (validated.length === 0) {
-        statusKind = "no_periods";
-      } else {
-        periodsLabel = validated.map(formatPeriodLabel).join(", ");
-        const timeColumn = getColumnLabel(xAxis) || "";
+      periodsLabel = validated.map(formatPeriodLabel).join(", ");
       const metricLabel = getMetricLabel(metric);
       const axisLength = Math.max(
-        ...validated.map(period => periodBucketCount(period, grain)),
+        ...validated.map(period => periodBucketCount(period, settingsWithSuffix.grain)),
       );
-      const seriesCount = validated.length;
-      const scale = getScale(yScale);
-      const numberFormatter = getNumberFormatter(numberFormat);
+      const numberFormatter = getNumberFormatter(settingsWithSuffix.numberFormat);
       const formatNumber = (value: number | null) =>
         value === null ? "—" : numberFormatter(value);
       const axisLabels = buildAxisLabels(
-        grain,
+        settingsWithSuffix.grain,
         axisLength,
         validated[0],
       );
-      const styles = seriesStyles || {};
-
-      const series: Series[] = validated.map((period, index) => {
-        const style = styles[String(index)];
-        return buildSeries({
-          rows: (queriesData?.[index]?.data as Record<string, unknown>[]) || [],
-          period,
-          grain,
-          metricLabel,
-          timeColumnLabel: timeColumn,
-          axisLength,
-          scale,
-          name:
-            style?.label ||
-            `${formatPeriodLabel(period)}${dateFilterSuffix}`,
-          color: style?.color || undefined,
-          symbol: seriesSymbolFor(index, seriesCount, style),
-          showSymbol: style?.markerEnabled !== false,
-        });
+      const series = buildSeriesSet({
+        queriesData,
+        validated,
+        grain: settingsWithSuffix.grain,
+        settings: settingsWithSuffix,
+        axisLength,
+        metricLabel,
+        timeColumn,
       });
 
       if (!series.some(item => item.hasData)) {
@@ -280,22 +312,22 @@ export default function transformProps(
       echartOptions = buildEchartOptions({
         series,
         axisLabels,
-        grain,
-        lineType: lineType as "polyline" | "smooth" | "step",
-        stepPosition: stepPosition as "start" | "middle" | "end",
-        lineWidth,
-        markerSize,
-        showValues,
-        showExtremes,
-        area,
-        areaOpacity,
-        scale,
-        showLegend,
+        grain: settingsWithSuffix.grain,
+        lineType: settingsWithSuffix.lineType,
+        stepPosition: settingsWithSuffix.stepPosition,
+        lineWidth: settingsWithSuffix.lineWidth,
+        markerSize: settingsWithSuffix.markerSize,
+        showValues: settingsWithSuffix.showValues,
+        showExtremes: settingsWithSuffix.showExtremes,
+        area: settingsWithSuffix.area,
+        areaOpacity: settingsWithSuffix.areaOpacity,
+        scale: getScale(settingsWithSuffix.yScale),
+        showLegend: settingsWithSuffix.showLegend,
         hideEmptyLegendEntries:
           periodsSource === "filter" || periodsSource === "date_filter",
-        showZoom,
-        gridColor: chartColors?.grid || undefined,
-        axisColor: chartColors?.axis || undefined,
+        showZoom: settingsWithSuffix.showZoom,
+        gridColor: settingsWithSuffix.chartColors?.grid || undefined,
+        axisColor: settingsWithSuffix.chartColors?.axis || undefined,
         formatNumber,
       });
     }
@@ -310,8 +342,8 @@ export default function transformProps(
     periodsSource,
     periodsLabel,
     appliedDateRangeLabel,
-    timeColumn: getColumnLabel(xAxis) || "",
-    grain,
+    timeColumn,
+    grain: settingsWithSuffix.grain,
     setDataMask: hooks?.setDataMask ?? noOp,
     filterState: filterState || {},
     formData: fd,

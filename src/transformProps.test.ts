@@ -101,7 +101,8 @@ test("periods from the period_ranges filter win and hide the pickers", () => {
   );
   expect(props.periodsSource).toBe("filter");
   expect(props.periods).toHaveLength(2);
-  expect(props.periods[0].start).toBe("2026-03-02");
+  // structured entries carry ISO bounds — pickers parse them as-is
+  expect(props.periods[0].start).toBe("2026-03-02T00:00:00.000Z");
   expect(props.periodsLabel).toContain("02.03");
   expect(props.periodsLabel).toContain("06.04");
 });

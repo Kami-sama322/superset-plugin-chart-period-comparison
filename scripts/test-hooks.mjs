@@ -4,7 +4,7 @@
  *   dependency-free to remain runnable here);
  * - extensionless relative specifiers resolve to .ts files.
  */
-import { pathToFileURL } from "node:url";
+
 
 const STUBS = {
   "@superset-ui/core": "stubs/superset-core.mjs",
@@ -17,7 +17,7 @@ export async function resolve(specifier, context, next) {
   const stub = STUBS[specifier];
   if (stub) {
     return {
-      url: pathToFileURL(new URL(stub, import.meta.url).href).href,
+      url: new URL(stub, import.meta.url).href,
       shortCircuit: true,
     };
   }
