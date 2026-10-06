@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { buildPeriodQueries, GRAIN_TO_TIME_GRAIN } from "./queryPlan";
+import { buildEmptyQuery, buildSpanQuery, GRAIN_TO_TIME_GRAIN } from "./queryPlan";
 
 const periods = [
   { startMs: Date.UTC(2026, 0, 5), endMs: Date.UTC(2026, 0, 9, 23, 59, 59, 999) },
@@ -33,32 +33,27 @@ const baseInput = {
   rowLimit: 5000,
 };
 
-test("one query per period with its own TEMPORAL_RANGE filter", () => {
-  const queries = buildPeriodQueries(baseInput);
-  expect(queries).toHaveLength(2);
-  queries.forEach((query, index) => {
-    expect(query.metrics).toEqual(["SUM(revenue)"]);
-    expect(query.columns).toEqual(["ds"]);
-    expect(query.is_timeseries).toBe(true);
-    expect(query.filters).toHaveLength(2);
-    expect(query.filters[0]).toEqual({ col: "region", op: "IN", val: ["EU"] });
-    expect(query.filters[1].col).toBe("ds");
-    expect(query.filters[1].op).toBe("TEMPORAL_RANGE");
+test("ONE query over the union span with a single TEMPORAL_RANGE filter", () => {
+  const queries = [buildSpanQuery(baseInput)];
+  expect(queries).toHaveLength(1);
+  const query = queries[0];
+  expect(query.metrics).toEqual(["SUM(revenue)"]);
+  expect(query.columns).toEqual(["ds"]);
+  expect(query.is_timeseries).toBe(true);
+  // base filter + the span clause — no per-period pairs in WHERE
+  expect(query.filters).toHaveLength(2);
+  expect(query.filters[0]).toEqual({ col: "region", op: "IN", val: ["EU"] });
+  expect(query.filters[1]).toEqual({
+    col: "ds",
+    op: "TEMPORAL_RANGE",
+    val: "2026-01-05 00:00:00 : 2026-02-07 00:00:00",
   });
-  expect(queries[0].filters[1].val).toBe(
-    "2026-01-05 00:00:00 : 2026-01-10 00:00:00",
-  );
-  expect(queries[1].filters[1].val).toBe(
-    "2026-02-02 00:00:00 : 2026-02-07 00:00:00",
-  );
 });
 
-test("the comparison grain maps to a Superset time grain on every query", () => {
-  const queries = buildPeriodQueries(baseInput);
-  queries.forEach(query => {
-    expect(query.time_grain_sqla).toBe("P1D");
-    expect(query.extras.time_grain_sqla).toBe("P1D");
-  });
+test("the comparison grain maps to a Superset time grain", () => {
+  const query = buildSpanQuery(baseInput);
+  expect(query.time_grain_sqla).toBe("P1D");
+  expect(query.extras.time_grain_sqla).toBe("P1D");
 });
 
 test("grain values cover hour/week/month/quarter/year", () => {
@@ -70,29 +65,20 @@ test("grain values cover hour/week/month/quarter/year", () => {
 });
 
 test("base filters and extras are shared, row limit is kept", () => {
-  const queries = buildPeriodQueries({
+  const query = buildSpanQuery({
     ...baseInput,
     baseExtras: { time_range: undefined },
   });
-  expect(queries[0].row_limit).toBe(5000);
-  expect(queries[0].extras).toEqual({ time_range: undefined, time_grain_sqla: "P1D" });
-  expect(queries[0].orderby).toBeUndefined();
-  expect(queries[0].series_columns).toEqual([]);
+  expect(query.row_limit).toBe(5000);
+  expect(query.extras).toEqual({ time_range: undefined, time_grain_sqla: "P1D" });
+  expect(query.orderby).toBeUndefined();
+  expect(query.series_columns).toEqual([]);
 });
 
-test("hour grain uses an exact exclusive upper bound", () => {
-  const queries = buildPeriodQueries({
+test("hour grain maps to PT1H regardless of period length", () => {
+  const query = buildSpanQuery({
     ...baseInput,
-    periods: [
-      {
-        startMs: Date.UTC(2026, 0, 5, 10, 30),
-        endMs: Date.UTC(2026, 0, 5, 12, 15),
-      },
-    ],
     grain: "hour",
   });
-  expect(queries[0].filters[1].val).toBe(
-    "2026-01-05 10:30:00 : 2026-01-05 13:00:00",
-  );
-  expect(queries[0].time_grain_sqla).toBe("PT1H");
+  expect(query.time_grain_sqla).toBe("PT1H");
 });

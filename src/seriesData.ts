@@ -122,7 +122,7 @@ export function buildSeries(input: SeriesInput): Series {
       return;
     }
     const ts = rowTimestampMs(row, timeColumnLabel);
-    if (ts === null) {
+    if (ts === null || ts > period.endMs) {
       return;
     }
     const index = bucketIndexForTs(ts, snappedStart, grain, axisLength);
@@ -146,4 +146,61 @@ export function buildSeries(input: SeriesInput): Series {
     bucketStarts,
     hasData,
   };
+}
+
+export type SeriesSetFromRowsArgs = {
+  /** Rows of the SINGLE span query (all periods in one result) */
+  rows: RowLike[];
+  validated: { startMs: number; endMs: number }[];
+  grain: ComparisonGrain;
+  metricLabel: string;
+  timeColumnLabel?: string;
+  /** Shared relative axis length (max bucket count across periods) */
+  axisLength: number;
+  scale: Scale;
+  /** Per-period legend names (index-aligned) */
+  names: string[];
+  colors?: (string | undefined)[];
+  symbols: string[];
+  showSymbols: boolean[];
+};
+
+/**
+ * ONE span query → several aligned series: every period's buildSeries sees
+ * ALL rows and keeps only the buckets inside its own [start, end) — a row
+ * inside two overlapping periods feeds both (same result as the per-period
+ * queries it replaces, at 1/N of the scans).
+ */
+export function buildSeriesSetFromRows(
+  args: SeriesSetFromRowsArgs,
+): Series[] {
+  const {
+    rows,
+    validated,
+    grain,
+    metricLabel,
+    timeColumnLabel,
+    axisLength,
+    scale,
+    names,
+    colors,
+    symbols,
+    showSymbols,
+  } = args;
+
+  return validated.map((period, seriesIndex) =>
+    buildSeries({
+      rows,
+      period,
+      grain,
+      metricLabel,
+      timeColumnLabel,
+      axisLength,
+      scale,
+      name: names[seriesIndex] ?? `#${seriesIndex + 1}`,
+      color: colors?.[seriesIndex],
+      symbol: symbols[seriesIndex] ?? "circle",
+      showSymbol: showSymbols[seriesIndex] ?? true,
+    }),
+  );
 }

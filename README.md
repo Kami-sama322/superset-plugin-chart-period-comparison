@@ -105,6 +105,13 @@ draws as long as at least one period has data. Under the filter the legend
 names the range each line actually shows (the period ∩ the applied
 window), so a line is never labeled with a range it does not contain.
 
+**Single-query architecture**: whatever the period source, the chart runs
+exactly ONE query — over the union span of the periods (or the dashboard
+date filter's window when one governs). The per-period series are split
+client-side from that single result (the buckets are already grouped at
+the comparison grain), so the WHERE clause never contains redundant
+AND-ed range pairs and the scan cost matches the stock table.
+
 Priority: period_ranges structured ranges → any applied date filter
 (own configured periods) → on-chart pickers (ownState) → control-panel
 config. Without a date filter in scope the pickers work as before.

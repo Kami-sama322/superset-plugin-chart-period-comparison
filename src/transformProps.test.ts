@@ -160,14 +160,16 @@ test("data in at least one period is enough to draw the chart", () => {
         filters: [{ col: "ds", op: ">=", val: "2030-01-01" }],
       },
     },
+    // ONE span query result: rows of both periods in a single dataset
     queriesData: [
-      { data: [] }, // first period — no data
       {
         data: [
-          { __timestamp: Date.UTC(2026, 1, 2), m: 7 },
-          { __timestamp: Date.UTC(2026, 1, 3), m: 8 },
+          { __timestamp: Date.UTC(2026, 0, 5), m: 5 },
+          { __timestamp: Date.UTC(2026, 0, 6), m: 6 },
+          { __timestamp: Date.UTC(2026, 1, 2), m: 30 },
+          { __timestamp: Date.UTC(2026, 1, 3), m: 31 },
         ],
-      }, // second period — has data
+      },
     ],
   } as never);
   expect(props.periodsSource).toBe("date_filter");
@@ -175,8 +177,8 @@ test("data in at least one period is enough to draw the chart", () => {
   expect(props.echartOptions.series).toHaveLength(2);
   // the empty first period leaves a gap, the second one is drawn
   const series = props.echartOptions.series as { data: (number | null)[] }[];
-  expect(series[0].data).toEqual([null, null, null, null, null]);
-  expect(series[1].data).toEqual([7, 8, null, null, null]);
+  expect(series[0].data).toEqual([5, 6, null, null, null]);
+  expect(series[1].data).toEqual([30, 31, null, null, null]);
 });
 
 test("a calendar filter labels the legend and the plaque with its window", () => {

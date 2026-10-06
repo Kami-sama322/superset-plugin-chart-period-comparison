@@ -24,7 +24,7 @@ function formData(
 ): PeriodComparisonQueryFormData {
   return {
     datasource: "5__table",
-    vizType: "chart_period_comparison",
+    viz_type: "chart_period_comparison",
     metric: "revenue",
     x_axis: "ds",
     comparison_grain: "day",
@@ -36,28 +36,24 @@ function formData(
   } as PeriodComparisonQueryFormData;
 }
 
-test("builds one query per period with TEMPORAL_RANGE filters", () => {
+test("builds ONE query over the union span of the periods", () => {
   const context = buildQuery(formData());
-  expect(context.queries).toHaveLength(2);
-  context.queries.forEach(query => {
-    expect(query.metrics).toEqual(["revenue"]);
-    expect(query.is_timeseries).toBe(true);
-    expect(query.time_grain_sqla).toBe("P1D");
-    expect(query.filters?.[query.filters.length - 1]).toEqual({
+  expect(context.queries).toHaveLength(1);
+  const query = context.queries[0];
+  expect(query.metrics).toEqual(["revenue"]);
+  expect(query.is_timeseries).toBe(true);
+  expect(query.time_grain_sqla).toBe("P1D");
+  // base has no extra filters: only the span clause in WHERE
+  expect(query.filters).toEqual([
+    {
       col: "ds",
       op: "TEMPORAL_RANGE",
-      val: expect.stringContaining(" : "),
-    });
-  });
-  expect(context.queries[0].filters?.at(-1)?.val).toBe(
-    "2026-01-05 00:00:00 : 2026-01-10 00:00:00",
-  );
-  expect(context.queries[1].filters?.at(-1)?.val).toBe(
-    "2026-02-02 00:00:00 : 2026-02-07 00:00:00",
-  );
+      val: "2026-01-05 00:00:00 : 2026-02-07 00:00:00",
+    },
+  ]);
 });
 
-test("dashboard extra filters are shared across all period queries", () => {
+test("dashboard extra filters are shared and precede the span clause", () => {
   const context = buildQuery(
     formData({
       extra_form_data: {
@@ -65,10 +61,13 @@ test("dashboard extra filters are shared across all period queries", () => {
       },
     }) as never,
   );
-  context.queries.forEach(query => {
-    expect(query.filters?.[0]).toEqual({ col: "region", op: "IN", val: ["EU"] });
-    expect(query.filters).toHaveLength(2);
+  expect(context.queries).toHaveLength(1);
+  expect(context.queries[0].filters?.[0]).toEqual({
+    col: "region",
+    op: "IN",
+    val: ["EU"],
   });
+  expect(context.queries[0].filters?.at(-1)?.op).toBe("TEMPORAL_RANGE");
 });
 
 test("ownState periods override the control-panel value", () => {
@@ -83,7 +82,7 @@ test("ownState periods override the control-panel value", () => {
   );
 });
 
-test("a date filter with no structured periods and no config periods yields an always-empty query", () => {
+test("a date filter with no structured periods yields an always-empty query", () => {
   const context = buildQuery({
     ...formData(),
     periods: [],
@@ -98,23 +97,7 @@ test("a date filter with no structured periods and no config periods yields an a
   expect(context.queries[0].filters).toEqual([]);
 });
 
-test("a calendar-style date filter keeps the configured periods and narrows them", () => {
-  const context = buildQuery({
-    ...formData(),
-    extra_form_data: {
-      filters: [{ col: "ds", op: ">=", val: "2026-01-06" }],
-    },
-  } as never);
-  // config periods still drive the chart (two queries)
-  expect(context.queries).toHaveLength(2);
-  context.queries.forEach(query => {
-    expect(query.filters?.at(-1)?.val).toBeDefined();
-    // the calendar's simple clause survives in the base filters
-    expect(query.filters?.some(f => f.col === "ds" && f.op === ">=")).toBe(true);
-  });
-});
-
-test("filter periods from extra_form_data.custom_form_data drive the queries", () => {
+test("periods from extra_form_data.custom_form_data define the span", () => {
   const context = buildQuery({
     ...formData(),
     extra_form_data: {
@@ -149,19 +132,15 @@ test("tagged date-filter clauses (foreign and own) are stripped from the base", 
     ...formData(),
     extra_form_data: {
       adhoc_filters: [foreignTagged, ownSpan, regularAdhoc],
-      custom_form_data: [
-        { col: "events_dt", start: "2026-06-01T00:00:00.000Z", end: "2026-06-05T23:59:59.999Z" },
-      ],
     },
   } as never);
-  context.queries.forEach(query => {
-    // neither the foreign filter clause nor the chart's own span may
-    // AND-narrow the per-period ranges built from the structured channel
-    const adhoc = query.adhoc_filters as { sqlExpression?: string }[] | undefined;
-    expect(adhoc?.some(f => f.sqlExpression?.startsWith("/* period"))).toBe(false);
-    expect(adhoc?.some(f => f.sqlExpression === "region IN ('EU')")).toBe(true);
-    expect(query.filters?.some(f => f.col === "events_dt")).toBe(false);
-  });
+  const adhoc = context.queries[0].adhoc_filters as {
+    sqlExpression?: string;
+  }[];
+  // neither the foreign filter clause nor the chart's own span may
+  // AND-narrow the single span query built from the structured periods
+  expect(adhoc.some(f => f.sqlExpression?.startsWith("/* period"))).toBe(false);
+  expect(adhoc.some(f => f.sqlExpression === "region IN ('EU')")).toBe(true);
 });
 
 test("throws without a metric or a time column", () => {
@@ -189,17 +168,15 @@ test("throws without valid periods", () => {
   ).toThrow("same length");
 });
 
-test("grain controls the time grain of every query", () => {
-  const context = buildQuery(
-    formData({ comparison_grain: "week" }) as never,
-  );
+test("grain controls the time grain of the query", () => {
+  const context = buildQuery(formData({ comparison_grain: "week" }) as never);
   context.queries.forEach(query => {
     expect(query.time_grain_sqla).toBe("1969-12-29T00:00:00Z/P1W");
     expect(query.extras?.time_grain_sqla).toBe("1969-12-29T00:00:00Z/P1W");
   });
 });
 
-test("row_limit and adhoc filters flow into every query", () => {
+test("row_limit and adhoc filters flow into the query", () => {
   const context = buildQuery(
     formData({
       row_limit: 777,
@@ -214,8 +191,10 @@ test("row_limit and adhoc filters flow into every query", () => {
       ],
     }) as never,
   );
-  context.queries.forEach(query => {
-    expect(query.row_limit).toBe(777);
-    expect(query.filters?.some(f => f.col === "category")).toBe(true);
-  });
+  expect(context.queries[0].row_limit).toBe(777);
+  expect(
+    context.queries[0].adhoc_filters?.some(
+      f => (f as { subject?: string }).subject === "category",
+    ),
+  ).toBe(true);
 });

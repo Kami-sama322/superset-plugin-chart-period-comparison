@@ -37,7 +37,7 @@ import {
 import { extractAppliedDateRange, resolvePeriodsSource } from "./dateFilterSignals";
 import { buildEchartOptions, seriesSymbolFor } from "./chartOptions";
 import { getScale } from "./scale";
-import { buildSeries, type Series } from "./seriesData";
+import { buildSeriesSetFromRows, type Series } from "./seriesData";
 import {
   DEFAULT_FORM_DATA,
   type ChartColors,
@@ -174,7 +174,8 @@ function buildAxisLabels(
 }
 
 type SeriesSetArgs = {
-  queriesData: ChartProps["queriesData"];
+  /** Rows of the single span query */
+  rows: Record<string, unknown>[];
   validated: ReturnType<typeof validatePeriods>["periods"];
   grain: ComparisonGrain;
   settings: ChartSettings;
@@ -189,7 +190,7 @@ type SeriesSetArgs = {
 
 /** One aligned Series per validated period, styled by the per-line styles */
 function buildSeriesSet({
-  queriesData,
+  rows,
   validated,
   grain,
   settings,
@@ -202,7 +203,11 @@ function buildSeriesSet({
   const seriesCount = validated.length;
   const scale = getScale(settings.yScale);
   const styles = settings.seriesStyles || {};
-  return validated.map((period, index) => {
+  const names: string[] = [];
+  const colors: (string | undefined)[] = [];
+  const symbols: string[] = [];
+  const showSymbols: boolean[] = [];
+  validated.forEach((period, index) => {
     const style = styles[String(index)];
     // under a dashboard date filter the legend names the range the line
     // actually shows: the period intersected with the applied window
@@ -214,19 +219,23 @@ function buildSeriesSet({
         name = style?.label || formatPeriodLabel({ startMs: start, endMs: end });
       }
     }
-    return buildSeries({
-      rows: (queriesData?.[index]?.data as Record<string, unknown>[]) || [],
-      period,
-      grain,
-      metricLabel,
-      timeColumnLabel: timeColumn,
-      axisLength,
-      scale,
-      name,
-      color: style?.color || undefined,
-      symbol: seriesSymbolFor(index, seriesCount, style),
-      showSymbol: style?.markerEnabled !== false,
-    });
+    names.push(name);
+    colors.push(style?.color || undefined);
+    symbols.push(seriesSymbolFor(index, seriesCount, style));
+    showSymbols.push(style?.markerEnabled !== false);
+  });
+  return buildSeriesSetFromRows({
+    rows,
+    validated,
+    grain,
+    metricLabel,
+    timeColumnLabel: timeColumn,
+    axisLength,
+    scale,
+    names,
+    colors,
+    symbols,
+    showSymbols,
   });
 }
 
@@ -300,7 +309,7 @@ export default function transformProps(
         validated[0],
       );
       const series = buildSeriesSet({
-        queriesData,
+        rows: (queriesData?.[0]?.data as Record<string, unknown>[]) || [],
         validated,
         grain: settings.grain,
         settings,

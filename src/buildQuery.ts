@@ -26,11 +26,13 @@ import {
 } from "@superset-ui/core";
 import { MAX_PERIODS, parseGrain, validatePeriods } from "./periods";
 import {
+  buildEmptyQuery,
+  buildSpanQuery,
   resolvePeriodsSource,
   stripTaggedDateFilterClauses,
-} from "./dateFilterSignals";
-import { buildPeriodQueries } from "./queryPlan";
+} from "./queryPlan";
 import type { PeriodComparisonQueryFormData } from "./types";
+
 type BuildQueryOptions = {
   ownState?: { periods?: unknown } | null;
 };
@@ -44,10 +46,16 @@ const ISSUE_TEXT: Record<string, string> = {
 };
 
 /**
- * Builds one query per period (1 HTTP request, N queries — see Mixed Chart).
+ * ONE query over the union span of the periods, for every period source:
+ * - the period_ranges filter's structured ranges (span of the ranges);
+ * - a dashboard date filter (its clauses arrive in the base filters and
+ *   define the window — the chart's configured periods are split
+ *   client-side, exactly like the stock table renders its window);
+ * - the on-chart pickers / control-panel value (span of the periods).
  *
- * Period source: dashboard runtime ownState (the on-chart pickers) wins over
- * the control-panel value, so runtime edits re-query the chart itself.
+ * The tagged date-filter clauses (the period_ranges filter's OR clause and
+ * this chart's own span) are stripped from the base filters — they target
+ * other charts and would AND-narrow the single query.
  */
 export default function buildQuery(
   formData: PeriodComparisonQueryFormData,
@@ -86,17 +94,7 @@ export default function buildQuery(
     if (source === "filter" || source === "date_filter") {
       return buildQueryContext(formData, {
         buildQuery: (baseQueryObject: QueryObject) => [
-          {
-            ...baseQueryObject,
-            filters: [],
-            adhoc_filters: [
-              {
-                clause: "WHERE",
-                expressionType: "SQL",
-                sqlExpression: "1 = 0",
-              },
-            ],
-          },
+          buildEmptyQuery(baseQueryObject) as unknown as QueryObject,
         ],
       });
     }
@@ -110,11 +108,8 @@ export default function buildQuery(
   const metricLabel = getMetricLabel(metric);
 
   return buildQueryContext(formData, {
-    buildQuery: (baseQueryObject: QueryObject) =>
-      buildPeriodQueries({
-        // the tagged OR clauses belong to OTHER charts (they filter the
-        // filter's own column) — this chart re-applies the ranges to its
-        // own time column via its per-period clauses
+    buildQuery: (baseQueryObject: QueryObject) => [
+      buildSpanQuery({
         baseFilters: (baseQueryObject.filters || []) as never[],
         baseAdhocFilters: stripTaggedDateFilterClauses(
           baseQueryObject.adhoc_filters,
@@ -126,6 +121,7 @@ export default function buildQuery(
         metricLabel,
         grain,
         rowLimit: baseQueryObject.row_limit,
-      }) as unknown as QueryObject[],
+      }) as unknown as QueryObject,
+    ],
   });
 }

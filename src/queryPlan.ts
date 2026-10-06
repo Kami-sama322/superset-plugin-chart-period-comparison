@@ -17,24 +17,24 @@
  * under the License.
  */
 
-import {
-  snapEndExclusiveMs,
-  toUtcSqlString,
-  type ComparisonGrain,
-  type ValidatedPeriod,
-} from "./periods";
+import { spanFilterValue, type ComparisonGrain } from "./periods";
 
 /**
- * Pure query planning: one query object per period. The Superset-side
- * buildQuery.ts feeds these into buildQueryContext (cast to QueryObject).
- * Dependency-free and unit-testable outside the Superset tree.
+ * Single-query planning: ONE query over the union span of all periods.
+ * The series are split client-side (seriesData.ts) by their own ranges —
+ * strictly cheaper than one query per period (one scan instead of N, no
+ * redundant AND-ed range pairs in WHERE).
+ *
+ * Dependency-free and unit-testable outside the Superset tree; the
+ * Superset-side buildQuery.ts feeds the result into buildQueryContext
+ * (cast to QueryObject).
  */
 
 export const GRAIN_TO_TIME_GRAIN: Record<ComparisonGrain, string> = {
   hour: "PT1H",
   day: "P1D",
   // Monday-anchored week grain: bucket boundaries align with the Monday
-  // snapping of the period start
+  // snapping of the period starts
   week: "1969-12-29T00:00:00Z/P1W",
   month: "P1M",
   quarter: "P3M",
@@ -64,10 +64,11 @@ export type PlannedQuery = {
 export type QueryPlanInput = {
   /** Base query simple filters (extra_form_data.filters etc.) */
   baseFilters: FilterClause[];
-  /** Base query adhoc filters with tagged period_ranges clauses stripped */
+  /** Base query adhoc filters with tagged date-filter clauses stripped */
   baseAdhocFilters?: unknown[];
   baseExtras?: Record<string, unknown>;
-  periods: ValidatedPeriod[];
+  /** Validated periods (their union span defines the query window) */
+  periods: { startMs: number; endMs: number }[];
   timeColumn: string;
   /** Raw x_axis control value (string or adhoc column) */
   xAxisColumn: unknown;
@@ -76,26 +77,13 @@ export type QueryPlanInput = {
   rowLimit?: number;
 };
 
-export function periodRangeFilter(
-  period: ValidatedPeriod,
-  timeColumn: string,
-  grain: ComparisonGrain,
-): FilterClause {
-  return {
-    col: timeColumn,
-    op: "TEMPORAL_RANGE",
-    val: `${toUtcSqlString(period.startMs)} : ${toUtcSqlString(
-      snapEndExclusiveMs(period.endMs, grain),
-    )}`,
-  };
-}
-
 /**
- * One query per period sharing the base filters; every query groups the
- * metric by the temporal column at the comparison grain and is restricted
- * to its own [start, endExclusive) window.
+ * ONE query over the union span of the periods: base filters (including
+ * the dashboard date filters) + a single TEMPORAL_RANGE clause covering
+ * the span, grouped by the temporal column at the comparison grain.
+ * Client-side seriesData assigns every bucket to its period(s).
  */
-export function buildPeriodQueries(input: QueryPlanInput): PlannedQuery[] {
+export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
   const {
     baseFilters,
     baseAdhocFilters,
@@ -109,7 +97,7 @@ export function buildPeriodQueries(input: QueryPlanInput): PlannedQuery[] {
   } = input;
   const timeGrain = GRAIN_TO_TIME_GRAIN[grain];
   const adhoc = baseAdhocFilters || [];
-  return periods.map(period => ({
+  return {
     // keep the temporal column in `columns` so buildQueryContext's
     // normalizeTimeColumn converts it into a BASE_AXIS with the grain
     columns: [xAxisColumn],
@@ -120,10 +108,25 @@ export function buildPeriodQueries(input: QueryPlanInput): PlannedQuery[] {
     extras: { ...(baseExtras || {}), time_grain_sqla: timeGrain },
     filters: [
       ...(baseFilters || []),
-      periodRangeFilter(period, timeColumn, grain),
+      {
+        col: timeColumn,
+        op: "TEMPORAL_RANGE",
+        val: spanFilterValue(periods),
+      },
     ],
     ...(adhoc.length > 0 ? { adhoc_filters: adhoc } : {}),
     orderby: undefined,
     ...(rowLimit !== undefined ? { row_limit: rowLimit } : {}),
-  }));
+  };
+}
+
+/** Always-empty query (a governing date filter has no usable periods yet) */
+export function buildEmptyQuery(baseQueryObject?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...(baseQueryObject || {}),
+    filters: [],
+    adhoc_filters: [
+      { clause: "WHERE", expressionType: "SQL", sqlExpression: "1 = 0" },
+    ],
+  };
 }
