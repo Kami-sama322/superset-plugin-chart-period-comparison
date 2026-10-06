@@ -24,7 +24,15 @@ import {
   QueryFormData,
   QueryObject,
 } from "@superset-ui/core";
-import { MAX_PERIODS, parseGrain, resolvePeriodsSource, stripTaggedDateFilterClauses, validatePeriods } from "./periods";
+import {
+  extractAppliedDateRange,
+  MAX_PERIODS,
+  parseGrain,
+  resolvePeriodsSource,
+  stripTaggedDateFilterClauses,
+  validatePeriods,
+} from "./periods";
+import { buildEmptyQuery, buildSpanQuery } from "./queryPlan";
 import type { PeriodComparisonQueryFormData } from "./types";
 
 type BuildQueryOptions = {
