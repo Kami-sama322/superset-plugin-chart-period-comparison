@@ -71,17 +71,25 @@ export default function buildQuery(
   }
 
   // Highest priority first: structured periods from the period_ranges
-  // filter; then ANY applied date filter (the chart keeps its configured
-  // periods, narrowed by the filter); then dashboard ownState (on-chart
-  // pickers); then the control-panel value
+  // filter; then ANY applied date filter (its window REPLACES the chart's
+  // periods — one line over exactly what the filter selects); then
+  // dashboard ownState (on-chart pickers); then the control-panel value
   const extraFormData = (formData as { extra_form_data?: unknown })
     .extra_form_data;
+  const appliedRange = extractAppliedDateRange(extraFormData);
   const { periods: rawPeriodList, source } = resolvePeriodsSource(
     options.ownState,
     formData.periods,
     extraFormData,
   );
-  const { periods: validated, errors } = validatePeriods(rawPeriodList, {
+  let periodList = rawPeriodList;
+  if (source === "date_filter" && appliedRange) {
+    // the dashboard date filter's window IS the period (inclusive end)
+    periodList = [
+      { startMs: appliedRange.startMs, endMs: appliedRange.endMs - 1 },
+    ];
+  }
+  const { periods: validated, errors } = validatePeriods(periodList, {
     maxCount: MAX_PERIODS,
   });
   if (validated.length === 0) {
@@ -117,6 +125,9 @@ export default function buildQuery(
         metricLabel,
         grain,
         rowLimit: baseQueryObject.row_limit,
+        // when a dashboard date filter governs, its clauses are already in
+        // the base filters — adding our span would duplicate the window
+        addSpanClause: source !== "date_filter",
       }) as unknown as QueryObject,
     ],
   });

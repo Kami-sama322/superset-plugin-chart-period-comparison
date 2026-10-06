@@ -37,6 +37,12 @@ type Args = {
   onCommit: (next: PeriodRange[]) => void;
   /** Explore control emits even invalid lists (buildQuery reports details) */
   commitInvalid?: boolean;
+  /**
+   * Allow removing EVERY picker (an empty set = no filtering). The
+   * period_ranges filter allows it; the chart's own toolbar keeps at
+   * least one picker so the chart never loses its periods.
+   */
+  allowEmpty?: boolean;
 };
 
 const serialize = (periods: PeriodRange[]) => JSON.stringify(periods);
@@ -53,6 +59,7 @@ export function usePeriodsList({
   value,
   onCommit,
   commitInvalid = false,
+  allowEmpty = false,
 }: Args) {
   const [draft, setDraft] = useState<PeriodRange[]>(value);
   const lastSyncedRef = useRef<string>(serialize(value));
@@ -81,14 +88,14 @@ export function usePeriodsList({
         if (nextValidation.errors.length > 0) {
           return;
         }
-        if (nextValidation.periods.length === 0) {
+        if (nextValidation.periods.length === 0 && !allowEmpty) {
           return;
         }
       }
       lastSyncedRef.current = serialize(next);
       onCommit(next);
     },
-    [commitInvalid, onCommit],
+    [commitInvalid, allowEmpty, onCommit],
   );
 
   const onRangeChange = useCallback(
@@ -117,20 +124,21 @@ export function usePeriodsList({
 
   const removePeriod = useCallback(
     (index: number) => {
-      if (draft.length <= 1) {
+      const minPickers = allowEmpty ? 0 : 1;
+      if (draft.length <= minPickers) {
         return;
       }
       apply(draft.filter((_, position) => position !== index));
     },
-    [draft, apply],
+    [draft, apply, allowEmpty],
   );
 
   return {
     draft,
     validation,
     canAdd: draft.length < MAX_PERIODS,
-    /** at least one period is always kept */
-    canRemove: draft.length > 1,
+    /** the last picker is removable only when empty sets are allowed */
+    canRemove: draft.length > (allowEmpty ? 0 : 1),
     onRangeChange,
     addPeriod,
     removePeriod,

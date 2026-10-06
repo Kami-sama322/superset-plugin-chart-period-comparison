@@ -265,16 +265,28 @@ export default function transformProps(
   const ownStateBag = ownState as { periods?: unknown } | undefined;
   const extraFormData = (rawFormData as { extra_form_data?: unknown } | undefined)
     ?.extra_form_data;
-  const { periods: resolvedPeriods, source: periodsSource } =
+  let { periods: resolvedPeriods, source: periodsSource } =
     resolvePeriodsSource(ownStateBag, fd.periods ?? raw.periods, extraFormData);
-  const periods = normalizePeriods(resolvedPeriods);
 
   // the window actually applied by dashboard date filters (plaque + the
-  // legend names of the narrowed series)
+  // legend name of the single narrowed line)
   const appliedRange = extractAppliedDateRange(extraFormData);
   const appliedDateRangeLabel = appliedRange
     ? formatPeriodLabel(appliedRange)
     : undefined;
+
+  // a dashboard date filter REPLACES the periods with its own window —
+  // one line spanning exactly what the filter selects (even while the
+  // period_ranges filter is present but empty)
+  if (periodsSource === "date_filter" && appliedRange) {
+    resolvedPeriods = [
+      {
+        start: new Date(appliedRange.startMs).toISOString(),
+        end: new Date(appliedRange.endMs - 1).toISOString(),
+      },
+    ];
+  }
+  const periods = normalizePeriods(resolvedPeriods);
 
   let statusKind: StatusKind = null;
   let echartOptions: Record<string, unknown> = {};

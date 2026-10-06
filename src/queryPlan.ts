@@ -75,6 +75,12 @@ export type QueryPlanInput = {
   metricLabel: string;
   grain: ComparisonGrain;
   rowLimit?: number;
+  /**
+   * Emit the span TEMPORAL_RANGE clause (period own/config/filter sources).
+   * False when a dashboard date filter governs: its clauses are already in
+   * the base filters and adding our span would duplicate the window.
+   */
+  addSpanClause?: boolean;
 };
 
 /**
@@ -94,6 +100,7 @@ export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
     metricLabel,
     grain,
     rowLimit,
+    addSpanClause = true,
   } = input;
   const timeGrain = GRAIN_TO_TIME_GRAIN[grain];
   const adhoc = baseAdhocFilters || [];
@@ -108,11 +115,15 @@ export function buildSpanQuery(input: QueryPlanInput): PlannedQuery {
     extras: { ...(baseExtras || {}), time_grain_sqla: timeGrain },
     filters: [
       ...(baseFilters || []),
-      {
-        col: timeColumn,
-        op: "TEMPORAL_RANGE",
-        val: spanFilterValue(periods),
-      },
+      ...(addSpanClause
+        ? [
+            {
+              col: timeColumn,
+              op: "TEMPORAL_RANGE",
+              val: spanFilterValue(periods),
+            },
+          ]
+        : []),
     ],
     ...(adhoc.length > 0 ? { adhoc_filters: adhoc } : {}),
     orderby: undefined,
