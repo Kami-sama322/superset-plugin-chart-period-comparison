@@ -129,9 +129,11 @@ export default function buildQuery(
         metricLabel,
         grain,
         rowLimit: baseQueryObject.row_limit,
-        // when a dashboard date filter governs, its clauses are already in
-        // the base filters — adding our span would duplicate the window
-        addSpanClause: source !== "date_filter",
+        // when the dashboard filter's window replaces the periods, its
+        // clauses are already in the base filters — adding our span would
+        // duplicate the window; otherwise (config/own periods, or a date
+        // filter with an unparseable window) the chart's own span applies
+        addSpanClause: !(source === "date_filter" && appliedRange),
       }) as unknown as QueryObject,
     ],
   });
