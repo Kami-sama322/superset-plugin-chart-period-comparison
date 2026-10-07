@@ -228,6 +228,23 @@ const config: ControlPanelConfig = {
         ],
         [
           {
+            name: "value_font_size",
+            config: {
+              type: "SliderControl",
+              label: t("Value font size"),
+              description: t(
+                "Font size of the node values and the extremes, in pixels",
+              ),
+              renderTrigger: true,
+              min: 8,
+              max: 24,
+              step: 1,
+              default: DEFAULT_FORM_DATA.value_font_size,
+            },
+          },
+        ],
+        [
+          {
             name: "area",
             config: {
               type: "CheckboxControl",

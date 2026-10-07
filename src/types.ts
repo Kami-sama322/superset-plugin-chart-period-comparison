@@ -77,6 +77,9 @@ export type PeriodComparisonQueryFormData = QueryFormData & {
   /** Applies to every enabled marker (per-line toggles in SeriesStyle) */
   marker_size?: number;
   markerSize?: number;
+  /** Font size of the node values and the extremes (px) */
+  value_font_size?: number;
+  valueFontSize?: number;
   show_values?: boolean;
   showValues?: boolean;
   show_extremes?: boolean;
@@ -94,19 +97,6 @@ export type PeriodComparisonQueryFormData = QueryFormData & {
   seriesStyles?: SeriesStyles | null;
   chart_colors?: ChartColors | null;
   chartColors?: ChartColors | null;
-};
-
-export type SeriesData = {
-  name: string;
-  color?: string;
-  symbol: string;
-  /** Transformed values aligned to the shared relative axis (null = gap) */
-  values: (number | null)[];
-  /** Original values, same indexing as `values` */
-  rawValues: (number | null)[];
-  /** UTC epoch ms of every bucket start of this period (tooltip dates) */
-  bucketStarts: (number | null)[];
-  hasData: boolean;
 };
 
 export type PeriodComparisonTransformedProps = {
@@ -138,6 +128,7 @@ export const DEFAULT_FORM_DATA: Partial<PeriodComparisonQueryFormData> = {
   step_position: "start",
   line_width: 2,
   marker_size: 6,
+  value_font_size: 10,
   show_values: false,
   show_extremes: false,
   area: false,

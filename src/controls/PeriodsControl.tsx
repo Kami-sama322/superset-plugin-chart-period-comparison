@@ -25,6 +25,7 @@ import { Button, Space } from "antd";
 import dayjs from "dayjs";
 import { validationMessages } from "../periodMessages";
 import { usePeriodsList } from "../usePeriodsList";
+import ValidationAlerts from "../ValidationAlerts";
 import type { PeriodRange } from "../periods";
 
 type Props = {
@@ -109,20 +110,7 @@ export default function PeriodsControl({
             + {t("Period")}
           </Button>
         </div>
-        {errors.length > 0 || warnings.length > 0 ? (
-          <div role="alert" style={{ fontSize: 12, lineHeight: 1.4 }}>
-            {errors.map(message => (
-              <div key={message} style={{ color: theme.colorError }}>
-                {message}
-              </div>
-            ))}
-            {warnings.map(message => (
-              <div key={message} style={{ color: theme.colorWarning }}>
-                {message}
-              </div>
-            ))}
-          </div>
-        ) : null}
+        <ValidationAlerts errors={errors} warnings={warnings} />
       </div>
     </div>
   );

@@ -38,7 +38,7 @@ import {
 } from "./periods";
 
 import { buildEchartOptions, seriesSymbolFor } from "./chartOptions";
-import { getScale } from "./scale";
+import { getScale, type Scale } from "./scale";
 import { buildSeriesSetFromRows, type Series } from "./seriesData";
 import {
   DEFAULT_FORM_DATA,
@@ -103,10 +103,7 @@ function pickNumber(
 }
 
 /** Dual-casing (camel/snake) reads of every style/behavior control */
-function resolveSettings(
-  fd: PeriodComparisonQueryFormData,
-  raw: PeriodComparisonQueryFormData,
-) {
+function resolveSettings(fd: PeriodComparisonQueryFormData) {
   return {
     grain: parseGrain(
       pick(fd, "comparisonGrain", "comparison_grain", undefined),
@@ -115,6 +112,14 @@ function resolveSettings(
     stepPosition: pick<StepPosition>(fd, "stepPosition", "step_position", "start"),
     lineWidth: pickNumber(fd, "lineWidth", "line_width", 2, 0.5, 6),
     markerSize: pickNumber(fd, "markerSize", "marker_size", 6, 0, 20),
+    valueFontSize: pickNumber(
+      fd,
+      "valueFontSize",
+      "value_font_size",
+      10,
+      6,
+      32,
+    ),
     showValues: pick(fd, "showValues", "show_values", false),
     showExtremes: pick(fd, "showExtremes", "show_extremes", false),
     area: pick(fd, "area", "area", false),
@@ -184,6 +189,8 @@ type SeriesSetArgs = {
   validated: ReturnType<typeof validatePeriods>["periods"];
   grain: ComparisonGrain;
   settings: ChartSettings;
+  /** Y scale shared by the series values and the chart options */
+  scale: Scale;
   axisLength: number;
   metricLabel: string;
   timeColumn: string;
@@ -199,6 +206,7 @@ function buildSeriesSet({
   validated,
   grain,
   settings,
+  scale,
   axisLength,
   metricLabel,
   timeColumn,
@@ -206,7 +214,6 @@ function buildSeriesSet({
   narrowedByDateFilter,
 }: SeriesSetArgs): Series[] {
   const seriesCount = validated.length;
-  const scale = getScale(settings.yScale);
   const styles = settings.seriesStyles || {};
   const names: string[] = [];
   const colors: (string | undefined)[] = [];
@@ -263,7 +270,7 @@ export default function transformProps(
     ...(formData as PeriodComparisonQueryFormData),
   };
   const raw = (rawFormData || {}) as PeriodComparisonQueryFormData;
-  const settings = resolveSettings(fd, raw);
+  const settings = resolveSettings(fd);
 
   // On the dashboard ANY date/time filter reaching the chart changes the
   // period source (see resolvePeriodsSource). Same source as buildQuery.
@@ -320,6 +327,8 @@ export default function transformProps(
       const numberFormatter = getNumberFormatter(settings.numberFormat);
       const formatNumber = (value: number | null) =>
         value === null ? "—" : numberFormatter(value);
+      // one scale for the series values AND the chart options
+      const scale = getScale(settings.yScale);
       const axisLabels = buildAxisLabels(
         settings.grain,
         axisLength,
@@ -330,6 +339,7 @@ export default function transformProps(
         validated,
         grain: settings.grain,
         settings,
+        scale,
         axisLength,
         metricLabel,
         timeColumn,
@@ -349,11 +359,12 @@ export default function transformProps(
         stepPosition: settings.stepPosition,
         lineWidth: settings.lineWidth,
         markerSize: settings.markerSize,
+        valueFontSize: settings.valueFontSize,
         showValues: settings.showValues,
         showExtremes: settings.showExtremes,
         area: settings.area,
         areaOpacity: settings.areaOpacity,
-        scale: getScale(settings.yScale),
+        scale,
         showLegend: settings.showLegend,
         hideEmptyLegendEntries:
           periodsSource === "filter" || periodsSource === "date_filter",

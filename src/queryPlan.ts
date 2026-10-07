@@ -18,6 +18,8 @@
  */
 
 import {
+  OWN_SPAN_TAG,
+  PERIOD_RANGES_TAG,
   snapEndExclusiveMs,
   snapStartMs,
   toUtcSqlString,
@@ -38,11 +40,8 @@ import {
 /** Tagged date-filter clauses (period_ranges' OR clause, the chart's own
  * span) target OTHER charts and must never AND-narrow this chart's query.
  * Superset 6 merges adhoc filters into `filters`, so both lists are
- * stripped. */
-const DATE_FILTER_TAGS = [
-  "/* period_ranges:v1 */",
-  "/* period_comparison:own:v1 */",
-];
+ * stripped. Tags come from periods.ts — single source of truth. */
+const DATE_FILTER_TAGS = [PERIOD_RANGES_TAG, OWN_SPAN_TAG];
 
 function isTaggedDateFilterClause(item: unknown): boolean {
   const sql = (item as { sqlExpression?: unknown })?.sqlExpression;

@@ -250,3 +250,31 @@ test("without the filter the pickers stay active (source own/config)", () => {
   expect(props.periodsSource).toBe("config");
   expect(props.periodsLabel).toContain("05.01");
 });
+
+test("the value font size control reaches the chart labels", () => {
+  const base = chartProps("day", true);
+  const props = transformProps({
+    ...base,
+    formData: { ...base.formData, valueFontSize: 18, showValues: true },
+    rawFormData: {
+      ...base.rawFormData,
+      value_font_size: 12,
+      show_values: true,
+    },
+  } as never);
+  const series = props.echartOptions.series as {
+    label: { fontSize: number };
+  }[];
+  // camelCase (the live control value) wins over snake_case
+  expect(series[0].label.fontSize).toBe(18);
+});
+
+test("a numeric simple filter does not hide the pickers", () => {
+  const props = transformProps(
+    chartProps("day", true, {
+      filters: [{ col: "amount", op: "=", val: 100 }],
+    }),
+  );
+  expect(props.periodsSource).toBe("config");
+  expect(props.statusKind).toBeNull();
+});

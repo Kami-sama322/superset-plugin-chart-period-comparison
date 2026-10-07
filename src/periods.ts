@@ -532,14 +532,29 @@ export function extractFilterPeriods(extraFormData: unknown): PeriodRange[] {
 }
 
 /**
+ * One extra_form_data filter clause constraining a date/time: the
+ * TEMPORAL_RANGE op, or a string value parsing as a date. Only a string
+ * value can be a date — a numeric filter value (e.g. `amount = 100`) must
+ * not read as a date. Shared by the date-filter presence detection here
+ * and buildQuery's base-bound check (single source of the clause contract).
+ */
+export function isDateFilterClause(clause: unknown): boolean {
+  const { op, val } = (clause || {}) as { op?: unknown; val?: unknown };
+  return (
+    op === "TEMPORAL_RANGE" ||
+    (typeof val === "string" && parsePeriodMs(val) !== null)
+  );
+}
+
+/**
  * True when ANY date/time-range filter reaches this chart through the
  * aggregated extra_form_data:
  * - the period_ranges filter (structured entries or its tagged clause),
  * - any native/cross filter emitting TEMPORAL_RANGE clauses (calendar,
  *   built-in time range, other charts),
  * - a time_range override (built-in Time range filter),
- * - any simple clause whose value parses as a date (the calendar filter's
- *   ==/>=/<= on any column).
+ * - any simple clause whose string value parses as a date (the calendar
+ *   filter's ==/>=/<= on any column; numeric values are not dates).
  *
  * This chart's own span (tagged) is intentionally NOT a signal — otherwise
  * the chart would defer to itself.
@@ -555,17 +570,8 @@ export function isDateFilterPresent(extraFormData: unknown): boolean {
   if (Array.isArray(bag.custom_form_data) && bag.custom_form_data.length > 0) {
     return true;
   }
-  if (Array.isArray(bag.filters)) {
-    const hasDateClause = bag.filters.some(item => {
-      const clause = item as { op?: unknown; val?: unknown };
-      if (clause?.op === "TEMPORAL_RANGE") {
-        return true;
-      }
-      return parsePeriodMs(clause?.val) !== null;
-    });
-    if (hasDateClause) {
-      return true;
-    }
+  if (Array.isArray(bag.filters) && bag.filters.some(isDateFilterClause)) {
+    return true;
   }
   if (Array.isArray(bag.adhoc_filters)) {
     const hasForeignTagged = bag.adhoc_filters.some(item => {

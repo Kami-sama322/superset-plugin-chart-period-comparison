@@ -22,6 +22,7 @@ import {
   OWN_SPAN_TAG,
   formatPeriodLabel,
   snapEndExclusiveMs,
+  spanFilterValue,
   toUtcSqlString,
   validatePeriods,
   type PeriodRange,
@@ -73,11 +74,8 @@ export function buildPeriodsDataMask(
 ): DataMaskLike {
   const { periods: validated } = validatePeriods(periods);
   const valid = validated.length > 0 && Boolean(timeColumn);
-  const spanValue = valid
-    ? `${toUtcSqlString(Math.min(...validated.map(p => p.startMs)))} : ${toUtcSqlString(
-        Math.max(...validated.map(p => snapEndExclusiveMs(p.endMs, "day"))),
-      )}`
-    : null;
+  // the same tested span value the cross-filtered charts receive
+  const spanValue = valid ? spanFilterValue(validated) : null;
   return {
     ownState: { periods: periods.map(({ start, end }) => ({ start, end })) },
     extraFormData: {

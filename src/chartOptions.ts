@@ -155,6 +155,8 @@ export type ChartOptionsInput = {
   stepPosition: "start" | "middle" | "end";
   lineWidth: number;
   markerSize: number;
+  /** Font size of the node values and the extremes (px) */
+  valueFontSize: number;
   showValues: boolean;
   showExtremes: boolean;
   area: boolean;
@@ -170,6 +172,35 @@ export type ChartOptionsInput = {
   formatNumber: (value: number | null) => string;
 };
 
+/**
+ * Indices of the plotted max and min (nulls skipped; one marker when the
+ * series is flat). The markPoint label reads the ORIGINAL value by index —
+ * the plotted coordinate only positions the marker.
+ */
+function extremeIndices(values: (number | null)[]): number[] {
+  let maxIndex = -1;
+  let minIndex = -1;
+  let max = -Infinity;
+  let min = Infinity;
+  values.forEach((value, index) => {
+    if (value === null) {
+      return;
+    }
+    if (value > max) {
+      max = value;
+      maxIndex = index;
+    }
+    if (value < min) {
+      min = value;
+      minIndex = index;
+    }
+  });
+  if (maxIndex === -1) {
+    return [];
+  }
+  return minIndex === maxIndex ? [maxIndex] : [maxIndex, minIndex];
+}
+
 export function buildEchartOptions(
   input: ChartOptionsInput,
 ): Record<string, unknown> {
@@ -181,6 +212,7 @@ export function buildEchartOptions(
     stepPosition,
     lineWidth,
     markerSize,
+    valueFontSize,
     showValues,
     showExtremes,
     area,
@@ -226,7 +258,7 @@ export function buildEchartOptions(
             label: {
               show: true,
               position: "top",
-              fontSize: 10,
+              fontSize: valueFontSize,
               color: axisColor,
               formatter: (params: { dataIndex: number }) =>
                 valueLabel(params.dataIndex),
@@ -238,15 +270,24 @@ export function buildEchartOptions(
             markPoint: {
               symbolSize: markerSize + 8,
               itemStyle: { color },
+              // per-item labels (below) override show/formatter; the level
+              // config carries position/size/color and the theme fallback
               label: {
                 show: true,
                 position: "top",
-                fontSize: 10,
+                fontSize: valueFontSize,
                 color: axisColor,
-                formatter: (params: { dataIndex: number }) =>
-                  valueLabel(params.dataIndex),
               },
-              data: [{ type: "max" }, { type: "min" }],
+              data: extremeIndices(item.values).map(index => ({
+                coord: [index, item.values[index]],
+                // with node values on, the point already carries its number —
+                // the extreme stays a bare marker; otherwise label the point
+                // with its own ORIGINAL (unscaled) value
+                label: {
+                  show: !showValues,
+                  formatter: () => valueLabel(index),
+                },
+              })),
             },
           }
         : {}),
@@ -283,6 +324,17 @@ export function buildEchartOptions(
     )}</div>${rows.join("<br/>")}`;
   };
 
+  // ECharts does not scale the axis to fit series labels — reserve canvas
+  // space explicitly: the topmost value/pin hangs above the plot area, and
+  // the labels of the first/last buckets stick out past the grid edges.
+  // ponytail: fixed padding covers short SMART_NUMBER labels; very wide
+  // custom-formatted numbers on edge buckets may still clip (upgrade path:
+  // per-label layout)
+  const labelsOn = showValues || showExtremes;
+  const labelsTopPad = labelsOn
+    ? valueFontSize + (showExtremes ? 20 : 8)
+    : 0;
+
   return {
     animationDuration: 300,
     color: series.map(
@@ -297,9 +349,9 @@ export function buildEchartOptions(
       ...(axisColor ? { textStyle: { color: axisColor } } : {}),
     },
     grid: {
-      top: showLegend && hasLegendContent ? 48 : 24,
-      left: 8,
-      right: 16,
+      top: (showLegend && hasLegendContent ? 48 : 24) + labelsTopPad,
+      left: labelsOn ? 24 : 8,
+      right: labelsOn ? 32 : 16,
       bottom: showZoom ? 56 : 8,
       containLabel: true,
     },

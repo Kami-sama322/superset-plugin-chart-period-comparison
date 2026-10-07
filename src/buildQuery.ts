@@ -26,9 +26,9 @@ import {
 } from "@superset-ui/core";
 import {
   extractAppliedDateRange,
+  isDateFilterClause,
   MAX_PERIODS,
   parseGrain,
-  parsePeriodMs,
   resolvePeriodsSource,
   stripTaggedDateFilterClauses,
   validatePeriods,
@@ -155,11 +155,12 @@ export default function buildQuery(
       // IGNORES for this chart (the query has no `granularity` — the
       // x-axis is a BASE_AXIS). In the latter case the applied window
       // must be added explicitly, or the scan stays unbounded.
+      // one shared clause predicate: a dashboard date filter may bound the
+      // scan through TEMPORAL_RANGE or simple date-valued clauses (see
+      // periods.isDateFilterClause); a time_range-only override is handled
+      // by addWindowClause below
       const hasBaseDateBound = (baseQueryObject.filters || []).some(
-        clause => {
-          const { op, val } = clause as { op?: unknown; val?: unknown };
-          return op === "TEMPORAL_RANGE" || parsePeriodMs(val) !== null;
-        },
+        isDateFilterClause,
       );
       return [
         buildSpanQuery({

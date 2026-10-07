@@ -24,10 +24,13 @@ import {
   formatHourAxisLabel,
   formatPeriodLabel,
   HOUR_MS,
+  isDateFilterClause,
+  isDateFilterPresent,
   parseGrain,
   parsePeriodEndMs,
   parsePeriodMs,
   periodBucketCount,
+  resolvePeriodsSource,
   snapEndExclusiveMs,
   snapStartMs,
   spanFilterValue,
@@ -301,4 +304,48 @@ test("parseGrain falls back to day on unknown values", () => {
   expect(parseGrain("week")).toBe("week");
   expect(parseGrain("decade")).toBe("day");
   expect(parseGrain(undefined)).toBe("day");
+});
+
+test("isDateFilterClause accepts TEMPORAL_RANGE and string dates only", () => {
+  expect(isDateFilterClause({ op: "TEMPORAL_RANGE", val: "a : b" })).toBe(true);
+  expect(isDateFilterClause({ op: "=", val: "2026-01-05" })).toBe(true);
+  expect(isDateFilterClause({ op: ">=", val: "2026-01-05 10:00" })).toBe(true);
+  expect(isDateFilterClause({ op: "=", val: 100 })).toBe(false);
+  expect(isDateFilterClause({ op: "=", val: "not a date" })).toBe(false);
+  expect(isDateFilterClause(null)).toBe(false);
+  expect(isDateFilterClause(undefined)).toBe(false);
+});
+
+test("isDateFilterPresent ignores numeric filter values", () => {
+  // a simple numeric filter (e.g. `amount = 100`) is not a date filter —
+  // only string values can parse as dates
+  expect(
+    isDateFilterPresent({
+      filters: [{ col: "amount", op: "=", val: 100 }],
+    }),
+  ).toBe(false);
+  expect(
+    isDateFilterPresent({
+      filters: [{ col: "ds", op: "=", val: "2026-01-05" }],
+    }),
+  ).toBe(true);
+  expect(
+    isDateFilterPresent({
+      filters: [{ col: "ds", op: "TEMPORAL_RANGE", val: "a : b" }],
+    }),
+  ).toBe(true);
+});
+
+test("a numeric simple filter does not switch the periods source", () => {
+  const ownState = { periods: [{ start: "2026-01-05", end: "2026-01-09" }] };
+  expect(
+    resolvePeriodsSource(ownState, [], {
+      filters: [{ col: "amount", op: "=", val: 100 }],
+    }).source,
+  ).toBe("own");
+  expect(
+    resolvePeriodsSource(null, [], {
+      filters: [{ col: "amount", op: "=", val: 100 }],
+    }).source,
+  ).toBe("config");
 });

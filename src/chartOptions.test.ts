@@ -47,6 +47,7 @@ const baseInput = {
   stepPosition: "start" as const,
   lineWidth: 2,
   markerSize: 6,
+  valueFontSize: 10,
   showValues: false,
   showExtremes: false,
   area: false,
@@ -149,10 +150,61 @@ test("area, labels and mark points appear only when enabled", () => {
   expect(item[0].areaStyle).toEqual({ color: DEFAULT_PALETTE[0], opacity: 0.5 });
   expect(item[0].label).toBeDefined();
   expect(item[0].markPoint).toBeDefined();
-  expect((item[0].markPoint as Record<string, unknown>).data).toEqual([
-    { type: "max" },
-    { type: "min" },
-  ]);
+  // values are on, so the extreme points stay bare markers
+  const markPointData = (item[0].markPoint as {
+    data: {
+      coord: number[];
+      label: { show: boolean; formatter: () => string };
+    }[];
+  }).data;
+  expect(markPointData.map(point => point.coord)).toEqual([[2, 3], [0, 1]]);
+  expect(markPointData.every(point => point.label.show === false)).toBe(true);
+  expect(
+    markPointData.every(point => typeof point.label.formatter === "function"),
+  ).toBe(true);
+});
+
+test("extreme labels show the original value of their own point", () => {
+  const options = buildEchartOptions({
+    ...baseInput,
+    series: [series([1, 59, 2])],
+    showExtremes: true,
+  });
+  const markPoint = (options.series as Record<string, unknown>[])[0]
+    .markPoint as {
+    data: { coord: number[]; label: { formatter: () => string } }[];
+  };
+  expect(markPoint.data.map(point => point.coord)).toEqual([[1, 59], [0, 1]]);
+  expect(markPoint.data[0].label.formatter()).toBe("59");
+  expect(markPoint.data[1].label.formatter()).toBe("1");
+});
+
+test("with node values on, extremes are bare markers without labels", () => {
+  const options = buildEchartOptions({
+    ...baseInput,
+    series: [series([1, 59, 2])],
+    showValues: true,
+    showExtremes: true,
+  });
+  const markPoint = (options.series as Record<string, unknown>[])[0]
+    .markPoint as { data: { label: { show: boolean } }[] };
+  expect(markPoint.data).toHaveLength(2);
+  expect(markPoint.data.every(point => point.label.show === false)).toBe(true);
+});
+
+test("a flat series gets a single extreme marker", () => {
+  const options = buildEchartOptions({
+    ...baseInput,
+    series: [series([7, 7, 7])],
+    showExtremes: true,
+  });
+  const markPoint = (options.series as Record<string, unknown>[])[0]
+    .markPoint as {
+    data: { coord: number[]; label: { formatter: () => string } }[];
+  };
+  expect(markPoint.data).toHaveLength(1);
+  expect(markPoint.data[0].coord).toEqual([0, 7]);
+  expect(markPoint.data[0].label.formatter()).toBe("7");
 });
 
 test("the y axis formats inverted values so ticks show original numbers", () => {
@@ -224,6 +276,21 @@ test("legend stays for a single series; zoom is optional", () => {
     showLegend: false,
   });
   expect((legendOff.legend as Record<string, unknown>).show).toBe(false);
+});
+
+test("value font size applies to node labels and extremes", () => {
+  const sized = buildEchartOptions({
+    ...baseInput,
+    showValues: true,
+    showExtremes: true,
+    valueFontSize: 18,
+  });
+  const item = sized.series as Record<string, unknown>[];
+  expect((item[0].label as Record<string, unknown>).fontSize).toBe(18);
+  expect(
+    ((item[0].markPoint as Record<string, unknown>).label as Record<string, unknown>)
+      .fontSize,
+  ).toBe(18);
 });
 
 test("applyThemeColors fills unset colors and keeps explicit ones", () => {
@@ -308,6 +375,39 @@ test("tooltip escapes user-authored series names", () => {
   const html = formatter([{ dataIndex: 0, seriesIndex: 0 }]);
   expect(html).not.toContain("<img");
   expect(html).toContain("&lt;img");
+});
+
+test("labels and extremes reserve canvas headroom in the grid", () => {
+  // baseInput has legend content, so the base top is 48
+  const base = buildEchartOptions(baseInput).grid as Record<string, unknown>;
+  expect(base.top).toBe(48);
+  expect(base.left).toBe(8);
+  expect(base.right).toBe(16);
+
+  const valuesOn = buildEchartOptions({
+    ...baseInput,
+    showValues: true,
+    valueFontSize: 18,
+  }).grid as Record<string, unknown>;
+  expect(valuesOn.top).toBe(48 + 18 + 8);
+  expect(valuesOn.left).toBe(24);
+  expect(valuesOn.right).toBe(32);
+
+  // the extreme pin hangs above the point: extra room for it
+  const extremesOn = buildEchartOptions({
+    ...baseInput,
+    showExtremes: true,
+    valueFontSize: 10,
+  }).grid as Record<string, unknown>;
+  expect(extremesOn.top).toBe(48 + 10 + 20);
+
+  const noLegend = buildEchartOptions({
+    ...baseInput,
+    showLegend: false,
+    showValues: true,
+    valueFontSize: 10,
+  }).grid as Record<string, unknown>;
+  expect(noLegend.top).toBe(24 + 10 + 8);
 });
 
 test("legend hides fully-empty series when a date filter narrows the chart", () => {
