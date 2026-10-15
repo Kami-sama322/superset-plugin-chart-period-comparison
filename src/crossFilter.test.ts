@@ -34,7 +34,7 @@ test("a valid set emits one tagged span adhoc clause and ownState", () => {
   expect(clause.sqlExpression).toContain("/* period_comparison:own:v1 */");
   expect(clause.sqlExpression).toBe(
     "/* period_comparison:own:v1 */ " +
-      "(ds >= '2026-01-05 00:00:00' AND ds < '2026-02-07 00:00:00')",
+      "(ds >= '2026-01-05 00:00:00' AND ds <= '2026-02-06 23:59:59.999999')",
   );
   expect(mask.filterState.value).toBe(
     "2026-01-05 00:00:00 : 2026-02-07 00:00:00",
@@ -67,12 +67,12 @@ test("an empty list clears everything", () => {
   expect(mask.filterState.value).toBeNull();
 });
 
-test("buildOwnSpanClause uses explicit exclusive bounds", () => {
+test("buildOwnSpanClause uses an inclusive upper bound", () => {
   const clause = buildOwnSpanClause("events.dt", [
     { startMs: Date.UTC(2026, 0, 5), endMs: Date.UTC(2026, 0, 9, 23, 59, 59, 999) },
   ]);
   expect(clause).toBe(
     "/* period_comparison:own:v1 */ " +
-      "(events.dt >= '2026-01-05 00:00:00' AND events.dt < '2026-01-10 00:00:00')",
+      "(events.dt >= '2026-01-05 00:00:00' AND events.dt <= '2026-01-09 23:59:59.999999')",
   );
 });

@@ -25,6 +25,7 @@ import {
   toUtcSqlString,
   type ComparisonGrain,
 } from "./periods";
+import { toInclusiveEndSql } from "./inclusiveBound";
 
 /**
  * Single-query planning: ONE query whose scan window is the OR-group of
@@ -105,11 +106,12 @@ export type QueryPlanInput = {
 };
 
 /**
- * The periods' bucket windows as raw SQL, each half-open
- * [snapStart, snapEndExclusive) at the query grain — exactly the rows the
- * client assigns to the series. Scanning the periods' own windows (however
- * far apart) instead of their union span keeps distant comparisons cheap:
- * Sep 1–5 vs Oct 6–10 scans 10 days, not the 41-day span between them.
+ * The periods' bucket windows as raw SQL, each inclusive on both ends
+ * ([snapStart, snapEndExclusive - 1µs] — the last instant of the period's
+ * last bucket; exactly the rows the client assigns to the series). Scanning
+ * the periods' own windows (however far apart) instead of their union span
+ * keeps distant comparisons cheap: Sep 1–5 vs Oct 6–10 scans 10 days, not
+ * the 41-day span between them.
  *
  * Returns `(r1) OR (r2) …` with each range parenthesized; the caller wraps
  * the whole expression when AND-combining it with other WHERE parts (the
@@ -128,7 +130,7 @@ export function periodRangesSql(
     const endExclusiveMs = snapEndExclusiveMs(period.endMs, grain);
     return (
       `(${timeColumn} >= '${toUtcSqlString(startMs)}' ` +
-      `AND ${timeColumn} < '${toUtcSqlString(endExclusiveMs)}')`
+      `AND ${timeColumn} <= '${toInclusiveEndSql(endExclusiveMs)}')`
     );
   });
   return ranges.join(" OR ");

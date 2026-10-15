@@ -28,6 +28,7 @@ import {
   type PeriodRange,
   type ValidatedPeriod,
 } from "./periods";
+import { toInclusiveEndSql } from "./inclusiveBound";
 
 /**
  * The data mask the chart emits when the on-chart date filter changes.
@@ -35,7 +36,7 @@ import {
  * - `ownState.periods` re-queries THIS chart (the dashboard refreshes
  *   charts whose ownState changed) with the new period set.
  * - `extra_form_data.adhoc_filters` carries ONE tagged adhoc clause — the
- *   span of all periods with explicit exclusive bounds. It cross-filters
+ *   span of all periods with an inclusive upper bound. It cross-filters
  *   every other chart on the dashboard, and its tag lets this chart
  *   recognize (and ignore) its own emission in the aggregated
  *   extra_form_data.
@@ -56,7 +57,7 @@ export type DataMaskLike = {
   filterState: { value?: string | null; label?: string };
 };
 
-/** Tagged span clause covering all periods (exclusive upper bound) */
+/** Tagged span clause covering all periods (inclusive upper bound) */
 export function buildOwnSpanClause(
   col: string,
   periods: ValidatedPeriod[],
@@ -65,7 +66,7 @@ export function buildOwnSpanClause(
   const end = Math.max(
     ...periods.map(p => snapEndExclusiveMs(p.endMs, "day")),
   );
-  return `${OWN_SPAN_TAG} (${col} >= '${toUtcSqlString(start)}' AND ${col} < '${toUtcSqlString(end)}')`;
+  return `${OWN_SPAN_TAG} (${col} >= '${toUtcSqlString(start)}' AND ${col} <= '${toInclusiveEndSql(end)}')`;
 }
 
 export function buildPeriodsDataMask(

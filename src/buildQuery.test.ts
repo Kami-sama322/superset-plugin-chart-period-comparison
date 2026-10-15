@@ -48,8 +48,8 @@ test("builds ONE query whose window is the OR of the period windows", () => {
   // outer group around the OR (the backend Grouping-wraps extras.where)
   expect(query.filters).toEqual([]);
   expect(query.extras?.where).toBe(
-    "(ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
-      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00')",
+    "(ds >= '2026-01-05 00:00:00' AND ds <= '2026-01-09 23:59:59.999999') OR " +
+      "(ds >= '2026-02-02 00:00:00' AND ds <= '2026-02-06 23:59:59.999999')",
   );
 });
 
@@ -76,7 +76,7 @@ test("ownState periods override the control-panel value", () => {
   });
   expect(context.queries).toHaveLength(1);
   expect(context.queries[0].extras?.where).toBe(
-    "(ds >= '2026-03-02 00:00:00' AND ds < '2026-03-07 00:00:00')",
+    "(ds >= '2026-03-02 00:00:00' AND ds <= '2026-03-06 23:59:59.999999')",
   );
 });
 
@@ -106,7 +106,7 @@ test("periods from extra_form_data.custom_form_data define the windows", () => {
   } as never);
   expect(context.queries).toHaveLength(1);
   expect(context.queries[0].extras?.where).toBe(
-    "(events_dt >= '2026-06-01 00:00:00' AND events_dt < '2026-06-06 00:00:00')",
+    "(events_dt >= '2026-06-01 00:00:00' AND events_dt <= '2026-06-05 23:59:59.999999')",
   );
 });
 
@@ -124,7 +124,7 @@ test("a bare time_range override is applied as the window clause", () => {
   const query = context.queries[0];
   expect(query.filters).toEqual([]);
   expect(query.extras?.where).toBe(
-    "(ds >= '2020-09-01 00:00:00' AND ds < '2020-09-06 00:00:00')",
+    "(ds >= '2020-09-01 00:00:00' AND ds <= '2020-09-05 23:59:59.999999')",
   );
   expect(JSON.stringify(query)).not.toContain("1 = 0");
 });
@@ -168,7 +168,7 @@ test("the chart's own stale span does not duplicate or narrow the span clause", 
     clause: "WHERE",
     expressionType: "SQL",
     sqlExpression:
-      "/* period_comparison:own:v1 */ (events_dt >= '2026-01-05 00:00:00' AND events_dt < '2026-02-07 00:00:00')",
+      "/* period_comparison:own:v1 */ (events_dt >= '2026-01-05 00:00:00' AND events_dt <= '2026-02-06 23:59:59.999999')",
   };
   const context = buildQuery(
     {
@@ -184,7 +184,7 @@ test("the chart's own stale span does not duplicate or narrow the span clause", 
   const query = context.queries[0];
   // the span clause reflects the CURRENT picker value...
   expect(query.extras?.where).toBe(
-    "(ds >= '2026-03-02 00:00:00' AND ds < '2026-03-07 00:00:00')",
+    "(ds >= '2026-03-02 00:00:00' AND ds <= '2026-03-06 23:59:59.999999')",
   );
   // ...and the stale emitted span is gone entirely (no duplicate window)
   expect(JSON.stringify(query)).not.toContain("2026-01-05 00:00:00");
@@ -221,7 +221,7 @@ test("a chart's stale own span does not survive a calendar filter takeover", () 
     clause: "WHERE",
     expressionType: "SQL",
     sqlExpression:
-      "/* period_comparison:own:v1 */ (events_dt >= '2026-01-05 00:00:00' AND events_dt < '2026-02-07 00:00:00')",
+      "/* period_comparison:own:v1 */ (events_dt >= '2026-01-05 00:00:00' AND events_dt <= '2026-02-06 23:59:59.999999')",
   };
   const context = buildQuery({
     ...formData(),

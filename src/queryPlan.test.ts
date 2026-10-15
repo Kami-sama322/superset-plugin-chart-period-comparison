@@ -51,8 +51,8 @@ test("ONE query whose window is the OR-group of the period windows", () => {
   // wraps the whole extras.where string itself)
   expect(query.filters).toEqual([{ col: "region", op: "IN", val: ["EU"] }]);
   expect(query.extras.where).toBe(
-    "(ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
-      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00')",
+    "(ds >= '2026-01-05 00:00:00' AND ds <= '2026-01-09 23:59:59.999999') OR " +
+      "(ds >= '2026-02-02 00:00:00' AND ds <= '2026-02-06 23:59:59.999999')",
   );
   // distant periods never widen each other's scan (2020 vs 2025 case)
   const far = periodRangesSql(
@@ -64,8 +64,8 @@ test("ONE query whose window is the OR-group of the period windows", () => {
     "ts",
   );
   expect(far).toBe(
-    "(ts >= '2020-09-01 00:00:00' AND ts < '2020-09-06 00:00:00') OR " +
-      "(ts >= '2025-09-06 00:00:00' AND ts < '2025-09-11 00:00:00')",
+    "(ts >= '2020-09-01 00:00:00' AND ts <= '2020-09-05 23:59:59.999999') OR " +
+      "(ts >= '2025-09-06 00:00:00' AND ts <= '2025-09-10 23:59:59.999999')",
   );
 });
 
@@ -77,7 +77,7 @@ test("periodRangesSql: single period, grain snapping, empty fallback", () => {
       "day",
       "ts",
     ),
-  ).toBe("(ts >= '2020-09-01 00:00:00' AND ts < '2020-09-06 00:00:00')");
+  ).toBe("(ts >= '2020-09-01 00:00:00' AND ts <= '2020-09-05 23:59:59.999999')");
   // hour grain keeps the intra-day bounds; a partial last bucket
   // (17:30 end) extends to the next hour boundary, like the client split
   expect(
@@ -86,7 +86,7 @@ test("periodRangesSql: single period, grain snapping, empty fallback", () => {
       "hour",
       "ts",
     ),
-  ).toBe("(ts >= '2026-01-05 12:00:00' AND ts < '2026-01-05 18:00:00')");
+  ).toBe("(ts >= '2026-01-05 12:00:00' AND ts <= '2026-01-05 17:59:59.999999')");
   // no periods cannot scan anything
   expect(periodRangesSql([], "day", "ts")).toBe("1 = 0");
 });
@@ -114,8 +114,8 @@ test("base filters, where and extras are shared, row limit is kept", () => {
   // the base where is kept AND the multi-range OR is grouped to stay
   // below the ANDs
   expect(query.extras.where).toBe(
-    "(region = 'EU') AND ((ds >= '2026-01-05 00:00:00' AND ds < '2026-01-10 00:00:00') OR " +
-      "(ds >= '2026-02-02 00:00:00' AND ds < '2026-02-07 00:00:00'))",
+    "(region = 'EU') AND ((ds >= '2026-01-05 00:00:00' AND ds <= '2026-01-09 23:59:59.999999') OR " +
+      "(ds >= '2026-02-02 00:00:00' AND ds <= '2026-02-06 23:59:59.999999'))",
   );
   expect(query.orderby).toBeUndefined();
   expect(query.series_columns).toEqual([]);
